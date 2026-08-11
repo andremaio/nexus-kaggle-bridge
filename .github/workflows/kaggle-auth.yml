@@ -28,25 +28,62 @@ jobs:
           echo "KAGGLE_API_TOKEN_PRESENT"
       - name: Install official Kaggle CLI
         run: python -m pip install --quiet "kaggle==2.2.4"
-      - name: Authenticate and query quota
+      - name: Authenticate and inspect account metadata
         shell: bash
         run: |
           set -euo pipefail
           kaggle --version
           kaggle quota --format json > quota.json
+          mkdir -p kernel-init
+          kaggle kernels init -p kernel-init >/dev/null
+          kaggle kernels list -m --page-size=10 --format json > kernels.json || true
+          kaggle datasets list -m --page-size=10 -v > datasets.csv || true
           python - <<'PY'
-          import json
+          import csv, json, re
           from pathlib import Path
-          data=json.loads(Path('quota.json').read_text())
+
+          quota=json.loads(Path('quota.json').read_text())
           print('KAGGLE_AUTH_OK')
-          # Print only quota metadata; never print credentials.
-          print(json.dumps(data, sort_keys=True))
+          print(json.dumps(quota, sort_keys=True))
+
+          candidates=[]
+          try:
+              meta=json.loads(Path('kernel-init/kernel-metadata.json').read_text())
+              ref=str(meta.get('id',''))
+              if '/' in ref and 'INSERT' not in ref.upper():
+                  candidates.append(ref.split('/',1)[0])
+          except Exception:
+              pass
+          try:
+              data=json.loads(Path('kernels.json').read_text())
+              rows=data if isinstance(data,list) else data.get('items') or data.get('kernels') or []
+              for row in rows:
+                  ref=str(row.get('ref') or row.get('id') or '')
+                  if '/' in ref:
+                      candidates.append(ref.split('/',1)[0])
+          except Exception:
+              pass
+          try:
+              with Path('datasets.csv').open(newline='') as f:
+                  for row in csv.DictReader(f):
+                      ref=str(row.get('ref') or row.get('Ref') or '')
+                      if '/' in ref:
+                          candidates.append(ref.split('/',1)[0])
+          except Exception:
+              pass
+          valid=[x for x in candidates if re.fullmatch(r'[A-Za-z0-9_-]{2,80}',x)]
+          if valid:
+              print('KAGGLE_OWNER_DISCOVERED=' + valid[0])
+          else:
+              print('KAGGLE_OWNER_NOT_DISCOVERED')
           PY
       - name: Upload sanitized result
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: kaggle-auth-result
-          path: quota.json
+          path: |
+            quota.json
+            kernel-init/kernel-metadata.json
           if-no-files-found: ignore
           retention-days: 1
