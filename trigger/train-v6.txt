@@ -1,0 +1,11 @@
+nexus-qwen3-0-6b-lora-v6
+requested_at=2026-08-12T19:01:00+01:00
+branch=agent/nexus-v6-generalization
+data_commit=7059f7b118360c02c845ede27893f811039e7366
+code_commit=4adf579f38635f684251af88da554e1720044583
+examples=612
+new_v6_examples=144
+primary_blind_holdout=holdout_v3:48
+development_holdout=holdout_v2:48
+mode=retrain-from-exact-base-single-t4-zero-cost
+promotion=blocked-until-all-gates-and-human-review
