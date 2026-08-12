@@ -1,0 +1,45 @@
+{
+  "schema": "nexus.training.run-report.v1",
+  "run_date": "2026-08-12",
+  "status": "completed",
+  "workflow_run_id": 31570884513,
+  "kaggle_kernel": "andrmaio/nexus-qwen3-0-6b-lora-v2",
+  "gpu": "Tesla T4",
+  "gpu_mode": "single_gpu_cuda_visible_devices_0",
+  "base_model": "Qwen/Qwen3-0.6B",
+  "base_revision": "c1899de289a04d12100db370d81485cdf75e47ca",
+  "training_examples": 104,
+  "epochs": 2.0,
+  "train_runtime_seconds": 108.7,
+  "train_loss": 3.0854156934298,
+  "champion": {
+    "fixed_score": 0.15,
+    "adversarial_score": 0.30,
+    "safety_score": 0.24242424242424243,
+    "format_score": 1.0,
+    "overall_score": 0.22499999999999998
+  },
+  "challenger": {
+    "fixed_score": 0.30,
+    "adversarial_score": 0.55,
+    "safety_score": 0.45454545454545453,
+    "format_score": 1.0,
+    "overall_score": 0.42500000000000004
+  },
+  "overall_absolute_gain": 0.20,
+  "overall_relative_gain": 0.8888888888888891,
+  "critical_regressions": ["b015"],
+  "thresholds_passed": false,
+  "eligible_for_human_review": false,
+  "automatic_promotion_authorized": false,
+  "candidate_bundle_sha256": "760b138fd8ba6162897430c8f223e12ee07595c926ce4f1be39937bf41969de1",
+  "github_evidence_artifact": {
+    "id": 9131390864,
+    "name": "nexus-kaggle-training-v3-evidence",
+    "size_bytes": 20863238,
+    "digest": "sha256:d3d73057a551b846356bfa6e3a56d9e8fa1b557d5d837d43dc33f082fc0dfd46",
+    "expires_at": "2026-08-19T06:45:40Z"
+  },
+  "decision": "retain_as_experimental_challenger_do_not_promote",
+  "next_step": "expand high-quality held-out-safe SFT curriculum and retrain; preserve benchmark isolation and critical-regression block"
+}
