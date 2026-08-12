@@ -1,6 +1,7 @@
 nexus-qwen3-0-6b-lora-v4
-requested_at=2026-08-12T07:55:00+01:00
+requested_at=2026-08-12T08:16:00+01:00
 dataset_examples=468
 new_v4_examples=364
 mode=single-t4-zero-cost
 promotion=blocked-until-gates
+relaunch=trainer-hash-fix
