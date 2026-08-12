@@ -1,0 +1,36 @@
+name: NEXUS Kaggle Status v4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/status-v4.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-0-6b-lora-v4
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Query NEXUS v4 Kaggle status
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle kernels status "${KERNEL_REF}" || true
+          echo "=== KERNEL LOG TAIL ==="
+          kaggle kernels logs "${KERNEL_REF}" > kernel.log 2>&1 || true
+          tail -n 300 kernel.log || true
+          echo "=== FILES ==="
+          kaggle kernels files "${KERNEL_REF}" --page-size=30 -v || true
+          echo "=== QUOTA ==="
+          kaggle quota --format json
