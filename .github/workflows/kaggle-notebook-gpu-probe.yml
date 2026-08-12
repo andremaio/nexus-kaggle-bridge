@@ -1,0 +1,86 @@
+name: NEXUS Kaggle Notebook GPU Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/notebook-gpu-probe.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-gpu-probe-t4-notebook
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Kaggle CLI
+        run: python -m pip install --quiet "kaggle==2.2.4"
+      - name: Launch native T4 notebook probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          rm -rf probe-kernel && mkdir probe-kernel
+          cp kaggle/gpu_probe_t4.ipynb probe-kernel/gpu_probe_t4.ipynb
+          cat > probe-kernel/kernel-metadata.json <<'JSON'
+          {
+            "id": "andrmaio/nexus-gpu-probe-t4-notebook",
+            "title": "NEXUS GPU Probe T4 Notebook",
+            "code_file": "gpu_probe_t4.ipynb",
+            "language": "python",
+            "kernel_type": "notebook",
+            "is_private": true,
+            "enable_gpu": true,
+            "enable_tpu": false,
+            "enable_internet": false,
+            "machine_shape": "NvidiaTeslaT4",
+            "dataset_sources": [],
+            "competition_sources": [],
+            "kernel_sources": [],
+            "model_sources": []
+          }
+          JSON
+          kaggle kernels push -p probe-kernel --accelerator NvidiaTeslaT4 --timeout 300
+      - name: Wait and collect
+        shell: bash
+        run: |
+          set -euo pipefail
+          state=""
+          for i in $(seq 1 40); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            echo "$status"
+            low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$low" | grep -Eq 'complete|completed'; then state=complete; break; fi
+            if printf '%s' "$low" | grep -Eq 'error|failed|failure|cancel'; then state=failed; break; fi
+            sleep 10
+          done
+          echo "PROBE_STATE=$state" >> "$GITHUB_ENV"
+          kaggle kernels logs "${KERNEL_REF}" > probe-notebook.log 2>&1 || true
+          cat probe-notebook.log
+          if [[ "$state" == "complete" ]]; then
+            mkdir -p probe-notebook-output
+            kaggle kernels output "${KERNEL_REF}" -p probe-notebook-output -o
+            cat probe-notebook-output/gpu-probe-notebook.json
+          fi
+      - name: Upload probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-kaggle-notebook-gpu-probe
+          path: |
+            probe-notebook.log
+            probe-notebook-output/gpu-probe-notebook.json
+          if-no-files-found: ignore
+          retention-days: 1
+      - name: Require successful probe
+        if: always()
+        shell: bash
+        run: |
+          test "${PROBE_STATE:-}" = "complete"
