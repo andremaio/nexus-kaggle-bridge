@@ -20,13 +20,17 @@ jobs:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
     steps:
       - uses: actions/checkout@v4
-      - name: Query Kaggle
+      - name: Query Kaggle account
         shell: bash
         run: |
           set -euo pipefail
           test -n "${KAGGLE_API_TOKEN:-}"
           python -m pip install --quiet "kaggle==2.2.4"
-          echo "=== STATUS ==="
-          kaggle kernels status "${KERNEL_REF}"
+          echo "=== MY NEXUS KERNELS ==="
+          kaggle kernels list -m -s nexus --page-size=20 -v --sort-by dateRun || true
+          echo "=== DIRECT STATUS (best effort) ==="
+          kaggle kernels status "${KERNEL_REF}" || true
+          echo "=== FILES (best effort) ==="
+          kaggle kernels files "${KERNEL_REF}" --page-size=20 -v || true
           echo "=== QUOTA ==="
           kaggle quota --format json
