@@ -1,0 +1,11 @@
+nexus-qwen3-1-7b-baseline-v7
+requested_at=2026-08-12T20:25:00+01:00
+branch=agent/nexus-v7-qwen3-1.7b
+model=Qwen/Qwen3-1.7B
+model_revision=70d244c
+mode=stock-baseline-single-t4-zero-cost
+primary_holdout=holdout_v3:48
+development_holdout=holdout_v2:48
+legacy_cases=40
+training=false
+promotion=false
