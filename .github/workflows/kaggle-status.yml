@@ -30,6 +30,9 @@ jobs:
           kaggle kernels list -m -s nexus --page-size=20 -v --sort-by dateRun || true
           echo "=== DIRECT STATUS ==="
           kaggle kernels status "${KERNEL_REF}" || true
+          echo "=== KERNEL LOG TAIL ==="
+          kaggle kernels logs "${KERNEL_REF}" > kernel.log 2>&1 || true
+          tail -n 240 kernel.log || true
           echo "=== FILES (best effort) ==="
           kaggle kernels files "${KERNEL_REF}" --page-size=20 -v || true
           echo "=== QUOTA ==="
