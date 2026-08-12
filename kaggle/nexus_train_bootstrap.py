@@ -5,6 +5,11 @@ import importlib.metadata
 import runpy
 import subprocess
 import sys
+import urllib.request
+from pathlib import Path
+
+TRAIN_COMMIT = '3ebe3b1bd59767a41c00e008b86d19377151bebc'
+TRAIN_URL = f'https://raw.githubusercontent.com/andremaio/nexus-kaggle-bridge/{TRAIN_COMMIT}/kaggle/nexus_train.py'
 
 
 def main() -> None:
@@ -29,7 +34,15 @@ def main() -> None:
     except importlib.metadata.PackageNotFoundError:
         print('NEXUS_BOOTSTRAP torchao_after=absent', flush=True)
 
-    runpy.run_path('nexus_train.py', run_name='__main__')
+    train_path = Path('/kaggle/working/nexus_train.py')
+    with urllib.request.urlopen(TRAIN_URL, timeout=60) as response:
+        payload = response.read()
+    if not payload:
+        raise RuntimeError('downloaded empty nexus_train.py')
+    train_path.write_bytes(payload)
+    print(f'NEXUS_BOOTSTRAP train_commit={TRAIN_COMMIT} bytes={len(payload)}', flush=True)
+
+    runpy.run_path(str(train_path), run_name='__main__')
 
 
 if __name__ == '__main__':
