@@ -1,0 +1,8 @@
+nexus-qwen3-0-6b-lora-v5
+requested_at=2026-08-12T19:01:00+01:00
+branch=agent/nexus-v5-holdout
+holdout_cases=48
+new_v5_examples=60
+replay_examples=180
+mode=continue-v4-single-t4-zero-cost
+promotion=blocked-until-holdout-and-human-review
