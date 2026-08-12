@@ -1,0 +1,167 @@
+name: NEXUS Kaggle Train v6
+
+on:
+  push:
+    branches: [agent/nexus-v6-generalization]
+    paths:
+      - trigger/train-v6.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-0-6b-lora-v6
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Kaggle access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle quota --format json > quota-before.json
+          cat quota-before.json
+
+      - name: Prepare private NEXUS v6 T4 kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel
+          mkdir kernel
+          cp kaggle/nexus_train_bootstrap_v6.py kernel/nexus_train_bootstrap_v6.py
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id": "andrmaio/nexus-qwen3-0-6b-lora-v6",
+            "title": "NEXUS Qwen3 0.6B LoRA v6",
+            "code_file": "nexus_train_bootstrap_v6.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": true,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "machine_shape": "NvidiaTeslaT4",
+            "keywords": [],
+            "dataset_sources": [],
+            "kernel_sources": ["andrmaio/nexus-qwen3-0-6b-lora-v4"],
+            "competition_sources": [],
+            "model_sources": []
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+
+      - name: Launch NEXUS v6 on Kaggle T4
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --accelerator NvidiaTeslaT4 --timeout 7200 | tee kaggle-launch.txt
+
+      - name: Wait for Kaggle v6 result
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 300); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            printf '%s\n' "$status" | tee kaggle-status.txt
+            low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$low" | grep -Eq 'complete|completed'; then final="complete"; break; fi
+            if printf '%s' "$low" | grep -Eq 'error|failed|failure|cancel|404|not found'; then final="failed"; break; fi
+            sleep 20
+          done
+          if [[ -z "$final" ]]; then final="timeout"; fi
+          echo "KAGGLE_FINAL_STATE=$final" | tee -a "$GITHUB_ENV"
+
+      - name: Collect Kaggle v6 logs
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kaggle-kernel.log 2>&1
+          tail -n 800 kaggle-kernel.log || true
+          kaggle quota --format json > quota-after.json
+          cat quota-after.json
+
+      - name: Download and verify v6 outputs
+        if: env.KAGGLE_FINAL_STATE == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p kaggle-output
+          kaggle kernels output "${KERNEL_REF}" -p kaggle-output -o
+          find kaggle-output -maxdepth 3 -type f -printf '%p %s bytes\n' | sort | tee kaggle-output-files.txt
+          for f in candidate-eval-v6.json run-manifest-v6.json dataset-manifest-v6.json nexus-candidate-v6.zip primary-details-v4-v6.json primary-details-v6.json development-details-v4-v6.json development-details-v6.json; do test -f "kaggle-output/$f"; done
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          report=json.loads(Path('kaggle-output/candidate-eval-v6.json').read_text())
+          run=json.loads(Path('kaggle-output/run-manifest-v6.json').read_text())
+          dataset=json.loads(Path('kaggle-output/dataset-manifest-v6.json').read_text())
+          bundle=Path('kaggle-output/nexus-candidate-v6.zip')
+          print('V6_TRAINING_FINISHED_OK=true')
+          print('GPU=' + str(run.get('gpu')))
+          print('EXAMPLES=' + str(run.get('examples')))
+          print('V6_EXAMPLES=' + str(run.get('v6_examples')))
+          print('TRAIN_LOSS=' + str(run.get('train_loss')))
+          print('BASE_PRIMARY=' + json.dumps(report.get('base_primary_v3'), sort_keys=True))
+          print('V4_PRIMARY=' + json.dumps(report.get('v4_primary_v3'), sort_keys=True))
+          print('V6_PRIMARY=' + json.dumps(report.get('v6_primary_v3'), sort_keys=True))
+          print('V4_DEV=' + json.dumps(report.get('v4_development_v2'), sort_keys=True))
+          print('V6_DEV=' + json.dumps(report.get('v6_development_v2'), sort_keys=True))
+          print('LEGACY_V6=' + json.dumps(report.get('v6_legacy'), sort_keys=True))
+          print('PRIMARY_GAIN=' + str(report.get('primary_gain_vs_v4')))
+          print('DEV_GAIN=' + str(report.get('development_gain_vs_v4')))
+          print('CRITICAL_REGRESSIONS=' + json.dumps(report.get('critical_regressions_all'), sort_keys=True))
+          print('GATES=' + json.dumps(report.get('gates'), sort_keys=True))
+          print('ELIGIBLE_FOR_HUMAN_REVIEW=' + str(report.get('eligible_for_human_review')))
+          print('NEAR_EVAL_GATE=' + json.dumps(dataset.get('near_evaluation_gate'), sort_keys=True))
+          print('BUNDLE_SHA256=' + hashlib.sha256(bundle.read_bytes()).hexdigest())
+          if report.get('automatic_promotion_authorized') is not False: raise SystemExit('automatic promotion invariant violated')
+          if run.get('paid_service_used') is not False: raise SystemExit('zero-cost invariant violated')
+          PY
+
+      - name: Upload v6 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-kaggle-training-v6-evidence
+          path: |
+            quota-before.json
+            quota-after.json
+            kaggle-launch.txt
+            kaggle-status.txt
+            kaggle-kernel.log
+            kaggle-output-files.txt
+            kaggle-output/candidate-eval-v6.json
+            kaggle-output/run-manifest-v6.json
+            kaggle-output/dataset-manifest-v6.json
+            kaggle-output/primary-details-base-v6.json
+            kaggle-output/primary-details-v4-v6.json
+            kaggle-output/primary-details-v6.json
+            kaggle-output/development-details-v4-v6.json
+            kaggle-output/development-details-v6.json
+            kaggle-output/base-primary-predictions-v6.jsonl
+            kaggle-output/v4-primary-predictions-v6.jsonl
+            kaggle-output/v6-primary-predictions-v6.jsonl
+            kaggle-output/v4-development-predictions-v6.jsonl
+            kaggle-output/v6-development-predictions-v6.jsonl
+            kaggle-output/v6-fixed-predictions.jsonl
+            kaggle-output/v6-adversarial-predictions.jsonl
+            kaggle-output/nexus-candidate-v6.zip
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Fail closed unless v6 complete
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${KAGGLE_FINAL_STATE:-}" = "complete"
