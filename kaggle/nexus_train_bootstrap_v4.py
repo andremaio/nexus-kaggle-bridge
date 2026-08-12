@@ -11,7 +11,7 @@ import sys
 import urllib.request
 
 TRAIN_COMMIT = 'abeb3156c81dc76ff144121e976b7cae6fb018e7'
-TRAIN_SHA256 = 'da8aad5e0efb27119ca7dfb503214e8661a9777535d3d4dab931898a96c262a4'
+TRAIN_SHA256 = 'ace2d626861a81d8183a8aa94d4ff507acddf9c4bb955cacdc0209bf454d9966'
 TRAIN_URL = f'https://raw.githubusercontent.com/andremaio/nexus-kaggle-bridge/{TRAIN_COMMIT}/kaggle/nexus_train_v4.py'
 
 
