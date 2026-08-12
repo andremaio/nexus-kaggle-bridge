@@ -1,0 +1,194 @@
+name: NEXUS Kaggle Train
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/train.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-06b-lora-v2
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Kaggle secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}" || { echo "KAGGLE_API_TOKEN_MISSING"; exit 2; }
+          echo "KAGGLE_SECRET_OK"
+
+      - name: Install official Kaggle CLI
+        run: python -m pip install --quiet "kaggle==2.2.4"
+
+      - name: Check free GPU quota
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle quota --format json > quota-before.json
+          python - <<'PY'
+          import json, re
+          q=json.load(open('quota-before.json'))
+          gpu=next((x for x in q if x.get('resource')=='GPU'), None)
+          if not gpu:
+              raise SystemExit('GPU quota not reported')
+          remaining=float(re.sub(r'[^0-9.]','',str(gpu.get('remaining','0'))) or 0)
+          print(f'GPU_REMAINING_HOURS={remaining:.2f}')
+          if remaining < 1.0:
+              raise SystemExit('Insufficient free GPU quota (<1h)')
+          PY
+
+      - name: Prepare private T4 kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel
+          mkdir kernel
+          cp kaggle/nexus_train.py kernel/nexus_train.py
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id": "andrmaio/nexus-qwen3-06b-lora-v2",
+            "title": "NEXUS Qwen3 0.6B LoRA v2",
+            "code_file": "nexus_train.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": true,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "machine_shape": "NvidiaTeslaT4",
+            "keywords": [],
+            "dataset_sources": [],
+            "kernel_sources": [],
+            "competition_sources": [],
+            "model_sources": []
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+
+      - name: Launch NEXUS training on Kaggle T4
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --accelerator NvidiaTeslaT4 --timeout 7200 | tee kaggle-launch.txt
+          echo "KAGGLE_KERNEL_LAUNCHED=${KERNEL_REF}"
+
+      - name: Wait for Kaggle result
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 180); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            printf '%s\n' "$status" | tee kaggle-status.txt
+            low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$low" | grep -Eq 'complete|completed'; then
+              final="complete"
+              break
+            fi
+            if printf '%s' "$low" | grep -Eq 'error|failed|failure|cancel|404|not found'; then
+              final="failed"
+              break
+            fi
+            sleep 30
+          done
+          if [[ -z "$final" ]]; then
+            final="timeout"
+          fi
+          echo "KAGGLE_FINAL_STATE=$final" | tee -a "$GITHUB_ENV"
+          echo "KAGGLE_FINAL_STATE=$final"
+
+      - name: Download Kaggle outputs
+        if: env.KAGGLE_FINAL_STATE == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p kaggle-output
+          kaggle kernels files "${KERNEL_REF}" --page-size 200 -v | tee kaggle-files.csv
+          kaggle kernels output "${KERNEL_REF}" -p kaggle-output -o
+          find kaggle-output -maxdepth 3 -type f -printf '%p %s bytes\n' | sort | tee kaggle-output-files.txt
+          test -f kaggle-output/candidate-eval.json
+          test -f kaggle-output/run-manifest.json
+          test -f kaggle-output/nexus-candidate-v2.zip
+
+      - name: Collect Kaggle logs on failure
+        if: env.KAGGLE_FINAL_STATE != 'complete'
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kaggle-kernel.log 2>&1
+          tail -n 300 kaggle-kernel.log || true
+
+      - name: Verify candidate evidence
+        if: env.KAGGLE_FINAL_STATE == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          report=json.loads(Path('kaggle-output/candidate-eval.json').read_text())
+          run=json.loads(Path('kaggle-output/run-manifest.json').read_text())
+          bundle=Path('kaggle-output/nexus-candidate-v2.zip')
+          h=hashlib.sha256(bundle.read_bytes()).hexdigest()
+          print('TRAINING_FINISHED_OK=true')
+          print('GPU=' + str(run.get('gpu')))
+          print('TRAIN_LOSS=' + str(run.get('train_loss')))
+          print('ELIGIBLE_FOR_HUMAN_REVIEW=' + str(report.get('eligible_for_human_review')))
+          print('CHAMPION=' + json.dumps(report.get('champion'), sort_keys=True))
+          print('CHALLENGER=' + json.dumps(report.get('challenger'), sort_keys=True))
+          print('CRITICAL_REGRESSIONS=' + json.dumps(report.get('critical_regressions'), sort_keys=True))
+          print('BUNDLE_SHA256=' + h)
+          if report.get('automatic_promotion_authorized') is not False:
+              raise SystemExit('automatic promotion invariant violated')
+          PY
+
+      - name: Check quota after run
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle quota --format json > quota-after.json
+          cat quota-after.json
+
+      - name: Upload NEXUS training evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-kaggle-training-evidence
+          path: |
+            quota-before.json
+            quota-after.json
+            kaggle-launch.txt
+            kaggle-status.txt
+            kaggle-files.csv
+            kaggle-output-files.txt
+            kaggle-kernel.log
+            kaggle-output/candidate-eval.json
+            kaggle-output/run-manifest.json
+            kaggle-output/dataset-manifest.json
+            kaggle-output/base-predictions.jsonl
+            kaggle-output/candidate-predictions.jsonl
+            kaggle-output/nexus-candidate-v2.zip
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Fail closed unless Kaggle completed
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${KAGGLE_FINAL_STATE:-}" != "complete" ]]; then
+            echo "Kaggle training did not complete successfully: ${KAGGLE_FINAL_STATE:-unknown}" >&2
+            exit 1
+          fi
