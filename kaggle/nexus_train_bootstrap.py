@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import os
 import runpy
 import subprocess
 import sys
@@ -13,6 +14,13 @@ TRAIN_URL = f'https://raw.githubusercontent.com/andremaio/nexus-kaggle-bridge/{T
 
 
 def main() -> None:
+    # Kaggle T4 sessions can expose two GPUs. This small 0.6B LoRA run is safer
+    # and fully sufficient on a single T4; hiding the second GPU prevents
+    # torch DataParallel from splitting inputs across cuda:0/cuda:1 while the
+    # model embeddings remain on cuda:0.
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    print('NEXUS_BOOTSTRAP CUDA_VISIBLE_DEVICES=0', flush=True)
+
     try:
         version = importlib.metadata.version('torchao')
         print(f'NEXUS_BOOTSTRAP torchao_before={version}', flush=True)
