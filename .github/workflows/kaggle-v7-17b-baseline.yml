@@ -1,0 +1,145 @@
+name: NEXUS Qwen3 1.7B Baseline v7
+
+on:
+  push:
+    branches: [agent/nexus-v7-qwen3-1.7b]
+    paths:
+      - trigger/v7-17b-baseline.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-1-7b-baseline-v7
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Kaggle access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle quota --format json > quota-before.json
+          cat quota-before.json
+      - name: Prepare private stock 1.7B benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel && mkdir kernel
+          cp kaggle/nexus_eval_bootstrap_v7.py kernel/nexus_eval_bootstrap_v7.py
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id": "andrmaio/nexus-qwen3-1-7b-baseline-v7",
+            "title": "NEXUS Qwen3 1.7B Baseline v7",
+            "code_file": "nexus_eval_bootstrap_v7.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": true,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "machine_shape": "NvidiaTeslaT4",
+            "keywords": [],
+            "dataset_sources": [],
+            "kernel_sources": ["andrmaio/nexus-qwen3-0-6b-lora-v4"],
+            "competition_sources": [],
+            "model_sources": []
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+      - name: Launch stock 1.7B benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --accelerator NvidiaTeslaT4 --timeout 7200 | tee kaggle-launch.txt
+      - name: Wait for Kaggle v7 result
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 300); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            printf '%s\n' "$status" | tee kaggle-status.txt
+            low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$low" | grep -Eq 'complete|completed'; then final="complete"; break; fi
+            if printf '%s' "$low" | grep -Eq 'error|failed|failure|cancel|404|not found'; then final="failed"; break; fi
+            sleep 20
+          done
+          if [[ -z "$final" ]]; then final="timeout"; fi
+          echo "KAGGLE_FINAL_STATE=$final" | tee -a "$GITHUB_ENV"
+      - name: Collect logs
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kaggle-kernel.log 2>&1
+          tail -n 700 kaggle-kernel.log || true
+          kaggle quota --format json > quota-after.json
+          cat quota-after.json
+      - name: Download and verify outputs
+        if: env.KAGGLE_FINAL_STATE == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p kaggle-output
+          kaggle kernels output "${KERNEL_REF}" -p kaggle-output -o
+          test -f kaggle-output/candidate-eval-v7.json
+          test -f kaggle-output/run-manifest-v7.json
+          test -f kaggle-output/nexus-qwen3-17b-baseline-v7.zip
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          r=json.loads(Path('kaggle-output/candidate-eval-v7.json').read_text())
+          m=json.loads(Path('kaggle-output/run-manifest-v7.json').read_text())
+          b=Path('kaggle-output/nexus-qwen3-17b-baseline-v7.zip')
+          print('V7_STOCK_FINISHED_OK=true')
+          print('MODEL=' + str(m.get('model_id')))
+          print('REVISION=' + str(m.get('revision')))
+          print('V4_PRIMARY=' + json.dumps(r.get('v4_primary'),sort_keys=True))
+          print('Q17_PRIMARY=' + json.dumps(r.get('q17_primary'),sort_keys=True))
+          print('V4_DEV=' + json.dumps(r.get('v4_development'),sort_keys=True))
+          print('Q17_DEV=' + json.dumps(r.get('q17_development'),sort_keys=True))
+          print('Q17_LEGACY=' + json.dumps(r.get('q17_legacy'),sort_keys=True))
+          print('PRIMARY_GAIN=' + str(r.get('primary_gain_vs_v4')))
+          print('DEV_GAIN=' + str(r.get('development_gain_vs_v4')))
+          print('PRIMARY_REGRESSIONS=' + json.dumps(r.get('critical_regressions_primary'),sort_keys=True))
+          print('DEV_REGRESSIONS=' + json.dumps(r.get('critical_regressions_development'),sort_keys=True))
+          print('PROMISING_FOR_LORA=' + str(r.get('promising_for_lora_training')))
+          print('BUNDLE_SHA256=' + hashlib.sha256(b.read_bytes()).hexdigest())
+          if r.get('automatic_promotion_authorized') is not False: raise SystemExit('promotion invariant failed')
+          if m.get('paid_service_used') is not False: raise SystemExit('zero-cost invariant failed')
+          PY
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-qwen3-17b-baseline-v7-evidence
+          path: |
+            quota-before.json
+            quota-after.json
+            kaggle-launch.txt
+            kaggle-status.txt
+            kaggle-kernel.log
+            kaggle-output/candidate-eval-v7.json
+            kaggle-output/run-manifest-v7.json
+            kaggle-output/q17-primary-v7.jsonl
+            kaggle-output/q17-dev-v7.jsonl
+            kaggle-output/q17-legacy-v7.jsonl
+            kaggle-output/v4-primary-v7.jsonl
+            kaggle-output/v4-dev-v7.jsonl
+            kaggle-output/nexus-qwen3-17b-baseline-v7.zip
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Fail closed unless complete
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${KAGGLE_FINAL_STATE:-}" = "complete"
