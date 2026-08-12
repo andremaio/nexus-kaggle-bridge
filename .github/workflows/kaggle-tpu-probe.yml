@@ -1,0 +1,88 @@
+name: NEXUS Kaggle TPU Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/tpu-probe.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-tpu-probe-v3-8
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Kaggle CLI
+        run: python -m pip install --quiet "kaggle==2.2.4"
+      - name: Launch TPU probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          rm -rf probe-kernel && mkdir probe-kernel
+          cp kaggle/tpu_probe.py probe-kernel/tpu_probe.py
+          cat > probe-kernel/kernel-metadata.json <<'JSON'
+          {
+            "id": "andrmaio/nexus-tpu-probe-v3-8",
+            "title": "NEXUS TPU Probe v3-8",
+            "code_file": "tpu_probe.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": false,
+            "enable_tpu": true,
+            "enable_internet": false,
+            "machine_shape": "TpuV38",
+            "dataset_sources": [],
+            "competition_sources": [],
+            "kernel_sources": [],
+            "model_sources": []
+          }
+          JSON
+          kaggle kernels push -p probe-kernel --accelerator TpuV38 --timeout 300
+      - name: Wait and collect
+        shell: bash
+        run: |
+          set -euo pipefail
+          state=""
+          for i in $(seq 1 50); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            echo "$status"
+            low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$low" | grep -Eq 'complete|completed'; then state=complete; break; fi
+            if printf '%s' "$low" | grep -Eq 'error|failed|failure|cancel'; then state=failed; break; fi
+            sleep 10
+          done
+          echo "PROBE_STATE=$state" >> "$GITHUB_ENV"
+          kaggle kernels logs "${KERNEL_REF}" > tpu-probe.log 2>&1 || true
+          cat tpu-probe.log
+          if [[ "$state" == "complete" ]]; then
+            mkdir -p tpu-probe-output
+            kaggle kernels output "${KERNEL_REF}" -p tpu-probe-output -o
+            cat tpu-probe-output/tpu-probe.json
+          fi
+      - name: Check quota
+        if: always()
+        run: kaggle quota --format json || true
+      - name: Upload probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-kaggle-tpu-probe
+          path: |
+            tpu-probe.log
+            tpu-probe-output/tpu-probe.json
+          if-no-files-found: ignore
+          retention-days: 1
+      - name: Require successful probe
+        if: always()
+        shell: bash
+        run: test "${PROBE_STATE:-}" = "complete"
