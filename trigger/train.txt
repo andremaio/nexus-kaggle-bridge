@@ -1,3 +1,4 @@
-nexus-qwen3-06b-lora-v2
+nexus-qwen3-0-6b-lora-v2
 source_commit=c5ced592d1bd99d4e0c38fdec57993172489f703
-requested_at=2026-08-12T00:59:00+01:00
+requested_at=2026-08-12T07:30:00+01:00
+manual_gpu_enabled=true
