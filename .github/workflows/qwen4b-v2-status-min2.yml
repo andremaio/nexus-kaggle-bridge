@@ -1,0 +1,49 @@
+name: Qwen3 4B v2 Minimal Status v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/qwen4b-v2-status-min2.txt
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-instruct-2507-lora-v2
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Persist four-line status
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          state="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+          kaggle kernels logs "${KERNEL_REF}" > full.log 2>&1 || true
+          train_complete=NO
+          grep -Fq 'NEXUS_QWEN4B_V2_TRAIN_COMPLETE' full.log && train_complete=YES || true
+          adapter=NO
+          grep -Eq 'adapter_model\.safetensors|nexus-qwen3-4b-instruct2507-adapter-v2' full.log && adapter=YES || true
+          last_error="$(grep -Ei 'RuntimeError|ValueError|Traceback|CUDA out of memory|Exception' full.log | tail -n 1 | cut -c1-700 || true)"
+          [[ -n "$last_error" ]] || last_error=NONE
+          mkdir -p reports
+          {
+            printf 'STATE=%s\n' "$(printf '%s' "$state" | tr '\n' ' ')"
+            printf 'TRAIN_COMPLETE=%s\n' "$train_complete"
+            printf 'ADAPTER=%s\n' "$adapter"
+            printf 'LAST_ERROR=%s\n' "$last_error"
+          } | tee reports/qwen4b-v2-status.txt
+          git config user.name nexus-status-bot
+          git config user.email nexus-status-bot@users.noreply.github.com
+          git add reports/qwen4b-v2-status.txt
+          git diff --cached --quiet || { git commit -m "diagnostic: record minimal Qwen3 4B v2 status"; git push origin HEAD:main; }
