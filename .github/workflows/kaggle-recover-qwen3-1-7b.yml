@@ -1,0 +1,108 @@
+name: Recover Qwen3 1.7B Probe Evidence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/recover-qwen3-1-7b.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-1-7b-challenger-probe
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Kaggle access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle quota --format json > quota-before.json
+          cat quota-before.json
+
+      - name: Recover existing probe state
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 90); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            printf '%s\n' "$status" | tee kaggle-status.txt
+            low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$low" | grep -Eq 'complete|completed'; then final="complete"; break; fi
+            if printf '%s' "$low" | grep -Eq 'error|failed|failure|cancel|404|not found'; then final="failed"; break; fi
+            sleep 20
+          done
+          if [[ -z "$final" ]]; then final="timeout"; fi
+          echo "KAGGLE_FINAL_STATE=$final" | tee -a "$GITHUB_ENV"
+
+      - name: Collect existing kernel logs
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kaggle-kernel.log 2>&1
+          tail -n 700 kaggle-kernel.log || true
+          kaggle quota --format json > quota-after.json
+          cat quota-after.json
+
+      - name: Download existing outputs
+        if: env.KAGGLE_FINAL_STATE == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p kaggle-output
+          kaggle kernels output "${KERNEL_REF}" -p kaggle-output -o
+          find kaggle-output -maxdepth 3 -type f -printf '%p %s bytes\n' | sort | tee kaggle-output-files.txt
+          test -f kaggle-output/qwen3-1.7b-probe.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('kaggle-output/qwen3-1.7b-probe.json').read_text())
+          required=['model_id','resolved_revision','legacy','semantic_safety_gate','holdout_v4','holdout_challenger','holdout_score_gain_vs_v4','critical_regressions_vs_v4','qualified_as_deep_reasoning_challenger']
+          missing=[k for k in required if k not in report]
+          if missing:
+              raise SystemExit('missing report keys: '+','.join(missing))
+          if report.get('automatic_promotion_authorized') is not False:
+              raise SystemExit('automatic promotion invariant violated')
+          if report.get('paid_service_used') is not False:
+              raise SystemExit('zero-cost invariant violated')
+          print(json.dumps({k:report.get(k) for k in required}, ensure_ascii=False, sort_keys=True, indent=2))
+          PY
+
+      - name: Upload recovered evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-qwen3-1-7b-recovered-evidence
+          path: |
+            quota-before.json
+            quota-after.json
+            kaggle-status.txt
+            kaggle-kernel.log
+            kaggle-output-files.txt
+            kaggle-output/qwen3-1.7b-probe.json
+            kaggle-output/qwen3-1.7b-holdout-details.json
+            kaggle-output/v4-holdout-details-for-1.7b-probe.json
+            kaggle-output/qwen3-1.7b-legacy-predictions.jsonl
+            kaggle-output/qwen3-1.7b-holdout-predictions.jsonl
+            kaggle-output/v4-holdout-predictions-for-1.7b-probe.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Fail closed unless recovered
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${KAGGLE_FINAL_STATE:-}" = "complete"
