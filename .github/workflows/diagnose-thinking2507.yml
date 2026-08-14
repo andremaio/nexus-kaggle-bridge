@@ -1,0 +1,31 @@
+name: Diagnose Qwen3 4B Thinking 2507
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/diagnose-thinking2507.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-thinking2507-probe-v1
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - name: Inspect private kernel without GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle kernels status "${KERNEL_REF}" 2>&1 | tee thinking-status.txt || true
+          kaggle kernels logs "${KERNEL_REF}" > thinking-kernel.log 2>&1 || true
+          tail -n 300 thinking-kernel.log || true
+          kaggle quota --format json | tee thinking-quota.json
