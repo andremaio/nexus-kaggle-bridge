@@ -1,2 +1,2 @@
 Read current Qwen3-1.7B probe status and logs without launching compute.
-Check 2 after pinned bootstrap became RUNNING.
+Check 3 after torchao-clean bootstrap relaunch.
