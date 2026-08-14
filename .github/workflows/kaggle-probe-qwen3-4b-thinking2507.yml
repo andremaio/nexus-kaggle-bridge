@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 180
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KERNEL_REF: andrmaio/nexus-qwen3-4b-thinking2507-probe-v1
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-thinking-2507-probe-v1
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
     steps:
       - uses: actions/checkout@v4
@@ -56,7 +56,7 @@ jobs:
           cp kaggle/probe_qwen3_4b_thinking2507_bootstrap.py kernel/probe_qwen3_4b_thinking2507_bootstrap.py
           cat > kernel/kernel-metadata.json <<'JSON'
           {
-            "id": "andrmaio/nexus-qwen3-4b-thinking2507-probe-v1",
+            "id": "andrmaio/nexus-qwen3-4b-thinking-2507-probe-v1",
             "title": "NEXUS Qwen3 4B Thinking 2507 Probe v1",
             "code_file": "probe_qwen3_4b_thinking2507_bootstrap.py",
             "language": "python",
@@ -81,7 +81,7 @@ jobs:
           set -euo pipefail
           kaggle kernels push -p kernel --accelerator NvidiaTeslaT4 --timeout 10800 | tee kaggle-launch.txt
 
-      - name: Wait for result
+      - name: Wait for probe result
         shell: bash
         run: |
           set -euo pipefail
