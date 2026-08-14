@@ -4,6 +4,10 @@ on:
   workflow_run:
     workflows: ["NEXUS Qwen3 4B Instruct 2507 LoRA"]
     types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - trigger/eval-qwen3-4b-instruct2507-holdout-v4.txt
   workflow_dispatch:
 
 permissions:
@@ -11,7 +15,7 @@ permissions:
 
 jobs:
   evaluate:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -33,6 +37,7 @@ jobs:
           python -m py_compile kaggle/eval_qwen3_4b_instruct2507_lora_holdout_v4.py
           grep -F "HOLDOUT_BLOB = '484ebf104d4bd28b8b484030c9e6b31eefa8d853'" kaggle/eval_qwen3_4b_instruct2507_lora_holdout_v4.py
           grep -F "perfect_fresh_holdout_gate_passed" kaggle/eval_qwen3_4b_instruct2507_lora_holdout_v4.py
+          grep -F "CUDA_FREE_AFTER_ADAPTER" kaggle/eval_qwen3_4b_instruct2507_lora_holdout_v4.py
           kaggle quota --format json | tee quota-before.json
 
       - name: Prepare private evaluation kernel
@@ -105,6 +110,7 @@ jobs:
           for key in ('responses_persisted','automatic_promotion_authorized','automatic_activation_authorized','paid_service_used'):
               if r.get(key) is not False: raise SystemExit(f'invariant failed: {key}')
           print('ADAPTED=' + json.dumps(r.get('adapted'), sort_keys=True))
+          print('BASE=' + json.dumps(r.get('base'), sort_keys=True))
           print('QUALITY_GAIN=' + str(r.get('quality_gain')))
           print('SAFETY_GAIN=' + str(r.get('safety_gain')))
           print('CRITICAL_REGRESSIONS=' + json.dumps((r.get('comparison') or {}).get('critical_regressions'), sort_keys=True))
