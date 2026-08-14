@@ -1,0 +1,4 @@
+STATE=andrmaio/nexus-qwen3-4b-instruct-2507-lora-v2 has status "KernelWorkerStatus.RUNNING"
+TRAIN_COMPLETE=NO
+ADAPTER=NO
+LAST_ERROR=NONE
