@@ -16,20 +16,29 @@ jobs:
     timeout-minutes: 10
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KERNEL_REF: andrmaio/nexus-qwen3-4b-thinking2507-probe-v1
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-thinking-2507-probe-v1
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
     steps:
-      - name: Inspect private kernels without GPU
+      - name: Inspect private kernel without GPU
         shell: bash
         run: |
           set -euo pipefail
           test -n "${KAGGLE_API_TOKEN:-}"
           python -m pip install --quiet "kaggle==2.2.4"
-          echo '--- requested status ---'
+          echo '--- status ---'
           kaggle kernels status "${KERNEL_REF}" 2>&1 || true
-          echo '--- recent kernels via CLI ---'
-          kaggle kernels list --mine --sort-by dateCreated 2>&1 | head -n 80 || true
-          echo '--- CLI help fallback ---'
-          kaggle kernels list --help 2>&1 | head -n 160 || true
+          echo '--- log tail ---'
+          kaggle kernels logs "${KERNEL_REF}" > thinking-kernel.log 2>&1 || true
+          tail -n 400 thinking-kernel.log || true
+          echo '--- output listing if available ---'
+          rm -rf thinking-output && mkdir thinking-output
+          kaggle kernels output "${KERNEL_REF}" -p thinking-output -o || true
+          find thinking-output -maxdepth 2 -type f -printf '%p %s bytes\n' | sort || true
+          if [[ -f thinking-output/qwen3-4b-thinking2507-probe-v1.json ]]; then
+            cat thinking-output/qwen3-4b-thinking2507-probe-v1.json
+          fi
+          if [[ -f thinking-output/qwen3-4b-thinking2507-probe-failure-v1.json ]]; then
+            cat thinking-output/qwen3-4b-thinking2507-probe-failure-v1.json
+          fi
           echo '--- quota ---'
           kaggle quota --format json
