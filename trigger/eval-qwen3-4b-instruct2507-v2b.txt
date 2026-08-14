@@ -1,0 +1,1 @@
+Launch exactly one blind evaluation of the recovered Qwen3-4B-Instruct-2507 LoRA v2 adapter. Evaluate untouched holdout_v5 and decision_holdout against the clean base, release VRAM between models, persist aggregate evidence only, and never auto-promote or activate.
