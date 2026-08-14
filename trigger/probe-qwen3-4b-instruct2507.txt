@@ -1,0 +1,1 @@
+Launch Qwen3-4B-Instruct-2507 on the unchanged frozen holdout_v3 plus semantic truth cases, using Qwen-recommended sampling. Compare with v4. No automatic training, promotion or activation. 2026-08-14T21:56+01:00.
