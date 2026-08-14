@@ -33,8 +33,8 @@ EXPECTED_BLOBS = {
 }
 EXPECTED_COUNTS = {
     'seed_sft_v1.jsonl': 24,
-    'seed_sft_v2.jsonl': 64,
-    'seed_sft_v4.jsonl': 400,
+    'seed_sft_v2.jsonl': 80,
+    'seed_sft_v4.jsonl': 384,
     'seed_sft_v5.jsonl': 40,
     'seed_sft_v6_decision_balance.jsonl': 64,
 }
