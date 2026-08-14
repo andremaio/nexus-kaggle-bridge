@@ -42,6 +42,8 @@ def _remove_incompatible_torchao() -> None:
 
 def main() -> None:
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    os.environ['HF_HOME'] = '/kaggle/temp/hf-cache'
+    os.environ['XDG_CACHE_HOME'] = '/kaggle/temp/cache'
     os.environ.setdefault('HF_HUB_DISABLE_TELEMETRY', '1')
     os.environ.setdefault('DO_NOT_TRACK', '1')
     os.environ.setdefault('WANDB_DISABLED', 'true')
@@ -70,8 +72,8 @@ def main() -> None:
     target.write_bytes(trainer_bytes)
     print(
         'NEXUS_QWEN3_1_7B_TRAIN_BOOTSTRAP '
-        f'CUDA_VISIBLE_DEVICES=0 commit={TRAIN_COMMIT} blob={TRAIN_BLOB_SHA} '
-        f'bytes={len(trainer_bytes)}',
+        f'CUDA_VISIBLE_DEVICES=0 HF_HOME={os.environ["HF_HOME"]} '
+        f'commit={TRAIN_COMMIT} blob={TRAIN_BLOB_SHA} bytes={len(trainer_bytes)}',
         flush=True,
     )
     runpy.run_path(str(target), run_name='__main__')
