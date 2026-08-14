@@ -1,0 +1,1 @@
+Capture the current Qwen3-4B-Instruct-2507 LoRA v2 kernel state in four lines. Do not relaunch GPU.
