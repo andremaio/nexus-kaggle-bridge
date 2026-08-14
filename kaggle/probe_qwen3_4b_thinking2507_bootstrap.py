@@ -11,8 +11,8 @@ import subprocess
 import sys
 import urllib.request
 
-PROBE_COMMIT = 'b54c245fa8a86902c24ef6121b1c49b87974941d'
-PROBE_BLOB_SHA = 'd5b5d55139b4d9a5fe1b5ca977962070f8ff9426'
+PROBE_COMMIT = '54f31547ca3750b2d22715ffc6e5a4c7c1c91e7b'
+PROBE_BLOB_SHA = '33c5c2f23acf065b3cfae417785a10764774378a'
 PROBE_API = (
     'https://api.github.com/repos/andremaio/nexus-kaggle-bridge/contents/'
     f'kaggle/probe_qwen3_4b_thinking2507.py?ref={PROBE_COMMIT}'
