@@ -1,0 +1,1 @@
+Recover the completed Qwen3-4B-Instruct-2507 LoRA v2 adapter and aggregate training evidence from the existing Kaggle kernel. Do not relaunch GPU or retrain. Verify the exact 592-example dataset contract and adapter hashes.
