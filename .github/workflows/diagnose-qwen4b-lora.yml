@@ -1,0 +1,38 @@
+name: Diagnose Qwen3 4B LoRA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/diagnose-qwen4b-lora.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-instruct-2507-lora-v1
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - name: Inspect existing private kernel without launching compute
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          echo '--- status ---'
+          kaggle kernels status "${KERNEL_REF}" 2>&1 | tee lora-status.txt || true
+          echo '--- log tail ---'
+          kaggle kernels logs "${KERNEL_REF}" > lora-kernel.log 2>&1 || true
+          tail -n 500 lora-kernel.log || true
+          echo '--- output listing ---'
+          rm -rf lora-output && mkdir lora-output
+          kaggle kernels output "${KERNEL_REF}" -p lora-output -o || true
+          find lora-output -maxdepth 3 -type f -printf '%p %s bytes\n' | sort || true
+          echo '--- quota ---'
+          kaggle quota --format json
