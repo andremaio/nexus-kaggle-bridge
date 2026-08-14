@@ -1,0 +1,1 @@
+Validate the frozen v2 curriculum against all evaluation sets including corrected blind holdout_v5. No GPU.
