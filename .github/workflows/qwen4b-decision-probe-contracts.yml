@@ -1,0 +1,50 @@
+name: Qwen3 4B Decision Probe Contracts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - kaggle/probe_qwen3_4b_decisions_v2.py
+      - kaggle/probe_qwen3_4b_decisions_bootstrap.py
+      - .github/workflows/qwen4b-decision-probe-contracts.yml
+      - .github/workflows/kaggle-probe-qwen3-4b-decisions.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile decision probe
+        run: |
+          python -m py_compile kaggle/probe_qwen3_4b_decisions_v2.py kaggle/probe_qwen3_4b_decisions_bootstrap.py
+      - name: Verify label and safety invariants
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          probe=Path('kaggle/probe_qwen3_4b_decisions_v2.py').read_text()
+          bootstrap=Path('kaggle/probe_qwen3_4b_decisions_bootstrap.py').read_text()
+          checks={
+            'four_exact_labels': "LABELS = ('BLOCK', 'VERIFY', 'ALLOW', 'DEFER')" in probe,
+            'forty_cases_required': 'len(cases) != 40' in probe,
+            'immutable_evidence_commit': "EVIDENCE_COMMIT = '3c2b26e91ea8f2f86683d671bf09b09ea0b42787'" in probe,
+            'resolved_4b_revision_from_probe': "resolved_revision" in probe and "probe_report" in probe,
+            'v4_comparison': 'v4_score' in probe and 'critical_regressions' in probe,
+            'critical_accuracy': 'critical_accuracy' in probe,
+            'no_raw_generation_persistence': "'raw_generation_persisted': False" in probe,
+            'no_auto_training': "'automatic_training_authorized': False" in probe,
+            'no_auto_promotion': "'automatic_promotion_authorized': False" in probe,
+            'no_auto_activation': "'automatic_activation_authorized': False" in probe,
+            'one_gpu': "os.environ['CUDA_VISIBLE_DEVICES'] = '0'" in bootstrap,
+            'temp_hf_cache': "os.environ['HF_HOME'] = '/kaggle/temp/hf-cache'" in bootstrap,
+            'torchao_removed': "pip', 'uninstall', '-y', 'torchao'" in bootstrap,
+          }
+          failed=[name for name,ok in checks.items() if not ok]
+          print({'checks':len(checks),'passed':len(checks)-len(failed),'failed':failed})
+          if failed:
+              raise SystemExit(1)
+          PY
