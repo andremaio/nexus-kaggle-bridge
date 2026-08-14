@@ -1,4 +1,4 @@
 Launch Qwen3-1.7B deep-reasoning challenger probe.
 Compare against trained Qwen3-0.6B v4 on fixed/adversarial, semantic safety, and pinned holdout v2.
-Use the one-GPU bootstrap which fetches the immutable probe blob from GitHub before importing PyTorch.
+Use one-GPU pinned bootstrap and remove incompatible Kaggle torchao before PEFT comparison.
 No training and no automatic promotion.
