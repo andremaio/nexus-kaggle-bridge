@@ -1,0 +1,159 @@
+name: NEXUS Kaggle Train v5
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/train-v5.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-0-6b-lora-v5
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Kaggle access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle quota --format json > quota-before.json
+          cat quota-before.json
+
+      - name: Prepare private NEXUS v5 T4 kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel
+          mkdir kernel
+          cp kaggle/nexus_train_bootstrap_v5.py kernel/nexus_train_bootstrap_v5.py
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id": "andrmaio/nexus-qwen3-0-6b-lora-v5",
+            "title": "NEXUS Qwen3 0.6B LoRA v5",
+            "code_file": "nexus_train_bootstrap_v5.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": true,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "machine_shape": "NvidiaTeslaT4",
+            "keywords": [],
+            "dataset_sources": [],
+            "kernel_sources": [],
+            "competition_sources": [],
+            "model_sources": []
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+
+      - name: Launch NEXUS v5 on Kaggle T4
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --accelerator NvidiaTeslaT4 --timeout 7200 | tee kaggle-launch.txt
+
+      - name: Wait for Kaggle v5 result
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 300); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            printf '%s\n' "$status" | tee kaggle-status.txt
+            low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$low" | grep -Eq 'complete|completed'; then final="complete"; break; fi
+            if printf '%s' "$low" | grep -Eq 'error|failed|failure|cancel|404|not found'; then final="failed"; break; fi
+            sleep 20
+          done
+          if [[ -z "$final" ]]; then final="timeout"; fi
+          echo "KAGGLE_FINAL_STATE=$final" | tee -a "$GITHUB_ENV"
+
+      - name: Collect Kaggle v5 logs
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kaggle-kernel.log 2>&1
+          tail -n 500 kaggle-kernel.log || true
+          kaggle quota --format json > quota-after.json
+          cat quota-after.json
+
+      - name: Download and verify v5 outputs
+        if: env.KAGGLE_FINAL_STATE == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p kaggle-output
+          kaggle kernels output "${KERNEL_REF}" -p kaggle-output -o
+          find kaggle-output -maxdepth 3 -type f -printf '%p %s bytes\n' | sort | tee kaggle-output-files.txt
+          test -f kaggle-output/candidate-eval-v5.json
+          test -f kaggle-output/run-manifest-v5.json
+          test -f kaggle-output/dataset-manifest-v5.json
+          test -f kaggle-output/nexus-candidate-v5.zip
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          report=json.loads(Path('kaggle-output/candidate-eval-v5.json').read_text())
+          run=json.loads(Path('kaggle-output/run-manifest-v5.json').read_text())
+          dataset=json.loads(Path('kaggle-output/dataset-manifest-v5.json').read_text())
+          bundle=Path('kaggle-output/nexus-candidate-v5.zip')
+          print('V5_TRAINING_FINISHED_OK=true')
+          print('GPU=' + str(run.get('gpu')))
+          print('TOTAL_EXAMPLES=' + str(run.get('total_examples')))
+          print('V5_EXAMPLES=' + str(run.get('v5_examples')))
+          print('TRAIN_LOSS=' + str(run.get('train_loss')))
+          print('ELIGIBLE_FOR_HUMAN_REVIEW=' + str(report.get('eligible_for_human_review')))
+          print('NO_REGRESSION_VS_V4=' + str(report.get('no_aggregate_regression_vs_v4')))
+          print('SEMANTIC_SAFETY=' + json.dumps(report.get('semantic_safety_gate'), sort_keys=True))
+          print('BASE=' + json.dumps(report.get('champion_base'), sort_keys=True))
+          print('V5=' + json.dumps(report.get('challenger_v5'), sort_keys=True))
+          print('CRITICAL_REGRESSIONS=' + json.dumps(report.get('critical_regressions'), sort_keys=True))
+          print('BUNDLE_SHA256=' + hashlib.sha256(bundle.read_bytes()).hexdigest())
+          if report.get('automatic_promotion_authorized') is not False:
+              raise SystemExit('automatic promotion invariant violated')
+          if run.get('paid_service_used') is not False:
+              raise SystemExit('zero-cost invariant violated')
+          if report.get('semantic_safety_gate', {}).get('ok') is not True:
+              raise SystemExit('semantic safety gate failed')
+          PY
+
+      - name: Upload v5 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-kaggle-training-v5-evidence
+          path: |
+            quota-before.json
+            quota-after.json
+            kaggle-launch.txt
+            kaggle-status.txt
+            kaggle-kernel.log
+            kaggle-output-files.txt
+            kaggle-output/candidate-eval-v5.json
+            kaggle-output/run-manifest-v5.json
+            kaggle-output/dataset-manifest-v5.json
+            kaggle-output/base-predictions-v5.jsonl
+            kaggle-output/candidate-predictions-v5.jsonl
+            kaggle-output/nexus-candidate-v5.zip
+            kaggle-output/nexus-training-failure-v4.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Fail closed unless v5 complete
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${KAGGLE_FINAL_STATE:-}" = "complete"
