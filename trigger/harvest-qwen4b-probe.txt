@@ -1,1 +1,1 @@
-Harvest sanitized Qwen3-4B aggregate probe report from the corrected Kaggle slug. Triggered 2026-08-14 21:01 Europe/Lisbon.
+Harvest sanitized aggregate evidence from completed Qwen3-4B direct reasoning probe run 31837064714. Triggered 2026-08-14T21:31+01:00.
