@@ -1,0 +1,1 @@
+Inspect current Qwen3-4B-Instruct-2507 LoRA kernel status and live logs without relaunching the kernel.
