@@ -1,0 +1,128 @@
+name: NEXUS Qwen3 4B Decision Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/probe-qwen3-4b-decisions.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-decision-probe-v1
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Kaggle access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle quota --format json > quota-before.json
+          cat quota-before.json
+      - name: Prepare private decision probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel && mkdir kernel
+          cp kaggle/probe_qwen3_4b_decisions_bootstrap.py kernel/probe_qwen3_4b_decisions_bootstrap.py
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id": "andrmaio/nexus-qwen3-4b-decision-probe-v1",
+            "title": "NEXUS Qwen3 4B Decision Probe v1",
+            "code_file": "probe_qwen3_4b_decisions_bootstrap.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": true,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "machine_shape": "NvidiaTeslaT4",
+            "keywords": [],
+            "dataset_sources": [],
+            "kernel_sources": ["andrmaio/nexus-qwen3-0-6b-lora-v4"],
+            "competition_sources": [],
+            "model_sources": []
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+      - name: Launch decision probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --accelerator NvidiaTeslaT4 --timeout 5400 | tee kaggle-launch.txt
+      - name: Wait for result
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 240); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            printf '%s\n' "$status" | tee kaggle-status.txt
+            low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$low" | grep -Eq 'complete|completed'; then final="complete"; break; fi
+            if printf '%s' "$low" | grep -Eq 'error|failed|failure|cancel|404|not found'; then final="failed"; break; fi
+            sleep 20
+          done
+          if [[ -z "$final" ]]; then final="timeout"; fi
+          echo "KAGGLE_FINAL_STATE=$final" | tee -a "$GITHUB_ENV"
+      - name: Collect logs
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kaggle-kernel.log 2>&1
+          tail -n 700 kaggle-kernel.log || true
+          kaggle quota --format json > quota-after.json
+          cat quota-after.json
+      - name: Download evidence
+        if: env.KAGGLE_FINAL_STATE == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p kaggle-output
+          kaggle kernels output "${KERNEL_REF}" -p kaggle-output -o
+          test -f kaggle-output/qwen3-4b-decision-probe-v2.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('kaggle-output/qwen3-4b-decision-probe-v2.json').read_text())
+          print('CHALLENGER=' + json.dumps(report.get('challenger'), sort_keys=True))
+          print('V4=' + json.dumps(report.get('v4'), sort_keys=True))
+          print('COMPARISON=' + json.dumps(report.get('comparison'), sort_keys=True))
+          print('CAPACITY_SIGNAL=' + str(report.get('capacity_signal')))
+          for key in ('automatic_training_authorized','automatic_promotion_authorized','automatic_activation_authorized'):
+              if report.get(key) is not False:
+                  raise SystemExit(key+' invariant violated')
+          if report.get('raw_generation_persisted') is not False:
+              raise SystemExit('raw generation persistence invariant violated')
+          PY
+      - name: Upload decision evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-qwen3-4b-decision-probe-evidence
+          path: |
+            quota-before.json
+            quota-after.json
+            kaggle-launch.txt
+            kaggle-status.txt
+            kaggle-kernel.log
+            kaggle-output/qwen3-4b-decision-probe-v2.json
+            kaggle-output/qwen3-4b-decision-probe-failure-v2.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Fail closed unless complete
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${KAGGLE_FINAL_STATE:-}" = "complete"
