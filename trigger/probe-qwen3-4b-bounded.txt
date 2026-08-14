@@ -1,0 +1,1 @@
+Launch empirical Qwen3-4B bounded candidate→critic→revision probe against the exact frozen direct baseline and holdout_v3. Require baseline reproduction before evidence is valid. No chain-of-thought requested or persisted; no automatic training, promotion or activation. Triggered 2026-08-14T21:50+01:00.
