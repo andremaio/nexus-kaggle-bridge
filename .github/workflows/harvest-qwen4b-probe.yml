@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 12
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KERNEL_REF: andrmaio/nexus-qwen3-4b-probe-v1
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-fresh-holdout-probe-v1
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +50,6 @@ jobs:
           for key in ('automatic_training_authorized','automatic_promotion_authorized','automatic_activation_authorized'):
               if report.get(key) is not False:
                   raise SystemExit(f'{key} invariant violated')
-          # Public bridge stores aggregate evidence only. Prediction files stay in Kaggle/GitHub artifact.
           allowed={
               'schema','model_id','resolved_revision','gpu','data_commit','evidence_sha256',
               'legacy','semantic_safety','dev_v2','v4_dev_v2','fresh_v3','v4_fresh_v3',
