@@ -1,0 +1,1 @@
+Inspect current Thinking-2507 Kaggle kernel status/log tail without launching compute. 2026-08-14T21:38+01:00.
