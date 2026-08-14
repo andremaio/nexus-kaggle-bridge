@@ -37,11 +37,12 @@ jobs:
           rm -rf kernel
           mkdir kernel
           cp kaggle/probe_qwen3_1_7b.py kernel/probe_qwen3_1_7b.py
+          cp kaggle/probe_qwen3_1_7b_bootstrap.py kernel/probe_qwen3_1_7b_bootstrap.py
           cat > kernel/kernel-metadata.json <<'JSON'
           {
             "id": "andrmaio/nexus-qwen3-1-7b-challenger-probe",
             "title": "NEXUS Qwen3 1.7B Challenger Probe",
-            "code_file": "probe_qwen3_1_7b.py",
+            "code_file": "probe_qwen3_1_7b_bootstrap.py",
             "language": "python",
             "kernel_type": "script",
             "is_private": true,
