@@ -23,20 +23,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Preflight contracts and quota
+      - name: Preflight contracts, isolation and quota
         shell: bash
         run: |
           set -euo pipefail
           test -n "${KAGGLE_API_TOKEN:-}"
           python -m pip install --quiet "kaggle==2.2.4"
           python -m pip install --dry-run --quiet "transformers==5.14.1" "datasets==5.0.0" "peft==0.19.1" "trl==1.9.0" "accelerate==1.14.0"
-          python -m py_compile kaggle/train_qwen3_4b_instruct2507_lora.py kaggle/train_qwen3_4b_instruct2507_bootstrap.py
+          python -m py_compile kaggle/train_qwen3_4b_instruct2507_lora.py kaggle/train_qwen3_4b_instruct2507_bootstrap.py scripts/check_qwen4b_training_isolation.py
+          python scripts/check_qwen4b_training_isolation.py | tee training-isolation.json
           grep -F "MODEL_ID = 'Qwen/Qwen3-4B-Instruct-2507'" kaggle/train_qwen3_4b_instruct2507_lora.py
           grep -F "num_train_epochs=1.0" kaggle/train_qwen3_4b_instruct2507_lora.py
           grep -F "learning_rate=2e-5" kaggle/train_qwen3_4b_instruct2507_lora.py
           grep -F "contains_private_user_conversations': False" kaggle/train_qwen3_4b_instruct2507_lora.py
           grep -F "automatic_promotion_authorized':False" kaggle/train_qwen3_4b_instruct2507_lora.py
           grep -F "automatic_activation_authorized':False" kaggle/train_qwen3_4b_instruct2507_lora.py
+          grep -F "SCRIPT_COMMIT = 'd322cea46bf710f832d0c7d3a5463acc9d5f7452'" kaggle/train_qwen3_4b_instruct2507_bootstrap.py
+          grep -F "SCRIPT_BLOB_SHA = '6d6453e1bfa3a8b68daad9db005250126751a6bc'" kaggle/train_qwen3_4b_instruct2507_bootstrap.py
           kaggle quota --format json | tee quota-before.json
 
       - name: Prepare private T4 training kernel
@@ -135,6 +138,7 @@ jobs:
         with:
           name: nexus-qwen3-4b-instruct2507-lora-evidence
           path: |
+            training-isolation.json
             quota-before.json
             quota-after.json
             launch.txt
