@@ -1,8 +1,8 @@
-Relaunch clean-base Qwen3-4B-Instruct-2507 LoRA v2 after correcting immutable dataset counts (24 + 80 + 384 + 40 + 64 = 592).
+Relaunch clean-base Qwen3-4B-Instruct-2507 LoRA v2 with exact immutable dataset counts (24 + 80 + 364 + 60 + 64 = 592).
 Use balanced BLOCK/VERIFY/ALLOW/DEFER calibration, learning rate 1e-5 and one epoch.
 No benchmark or baseline load inside the training kernel.
 All 228 evaluation cases remain evaluation-only; the persisted isolation receipt has zero near-match violations.
 Training sources and training script are pinned to immutable commits and verified locally by Git blob SHA-1.
 Require exactly one visible T4 after bootstrap; fail before training otherwise.
 No automatic promotion or activation.
-Triggered 2026-08-14T21:56+01:00.
+Triggered after count-contract correction on 2026-08-14.
