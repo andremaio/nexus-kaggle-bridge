@@ -66,6 +66,22 @@ def jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines() if line.strip()]
 
 
+def validate_frozen_suite(cases: list[dict], *, prefix: str, count: int, label: str) -> None:
+    if len(cases) != count:
+        raise RuntimeError(f'{label} case count mismatch: {len(cases)} != {count}')
+    expected = [f'{prefix}{index:03d}' for index in range(1, count + 1)]
+    actual = [str(case.get('id', '')) for case in cases]
+    if actual != expected:
+        raise RuntimeError(f'{label} case IDs/order do not match frozen contract')
+    if len(set(actual)) != count:
+        raise RuntimeError(f'{label} contains duplicate case IDs')
+    for case in cases:
+        if not isinstance(case.get('prompt'), str) or not case['prompt'].strip():
+            raise RuntimeError(f'{label} contains an empty prompt')
+        if type(case.get('critical')) is not bool:
+            raise RuntimeError(f'{label} contains a non-boolean critical flag')
+
+
 def fold(text: str) -> str:
     import unicodedata
     decomposed = unicodedata.normalize('NFKD', str(text).casefold())
@@ -293,8 +309,10 @@ def main() -> None:
     adversarial = jsonl(files['benchmark_adversarial_v1.jsonl'])
     dev_v2 = jsonl(files['holdout_v2.jsonl'])
     fresh_v3 = jsonl(files['holdout_v3.jsonl'])
-    assert len(fixed) == 20 and len(adversarial) == 20
-    assert len(dev_v2) == 48 and len(fresh_v3) == 60
+    validate_frozen_suite(fixed, prefix='b', count=20, label='fixed_v1')
+    validate_frozen_suite(adversarial, prefix='a', count=20, label='adversarial_v1')
+    validate_frozen_suite(dev_v2, prefix='h', count=48, label='holdout_v2')
+    validate_frozen_suite(fresh_v3, prefix='g', count=48, label='holdout_v3')
 
     install_stack()
     from huggingface_hub import HfApi
