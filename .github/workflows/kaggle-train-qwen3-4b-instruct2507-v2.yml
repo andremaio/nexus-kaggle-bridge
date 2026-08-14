@@ -27,9 +27,10 @@ jobs:
           set -euo pipefail
           test -n "${KAGGLE_API_TOKEN:-}"
           python -m pip install --quiet "kaggle==2.2.4"
-          python -m py_compile kaggle/train_qwen3_4b_instruct2507_lora_v2.py scripts/check_qwen4b_training_isolation.py
-          python scripts/check_qwen4b_training_isolation.py | tee qwen4b-v2-isolation.json
+          python -m py_compile kaggle/train_qwen3_4b_instruct2507_lora_v2.py scripts/check_qwen4b_training_isolation.py scripts/check_qwen4b_training_isolation_v5.py
+          python scripts/check_qwen4b_training_isolation_v5.py | tee qwen4b-v2-isolation.json
           grep -F '"training_allowed": true' qwen4b-v2-isolation.json
+          grep -F '"holdout_v5.jsonl"' qwen4b-v2-isolation.json
           grep -F "learning_rate=1e-5" kaggle/train_qwen3_4b_instruct2507_lora_v2.py
           grep -F "evaluation_performed_in_training_kernel':False" kaggle/train_qwen3_4b_instruct2507_lora_v2.py
           grep -F "baseline_loaded_after_training':False" kaggle/train_qwen3_4b_instruct2507_lora_v2.py
