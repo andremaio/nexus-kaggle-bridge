@@ -19,13 +19,17 @@ jobs:
       KERNEL_REF: andrmaio/nexus-qwen3-4b-thinking2507-probe-v1
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
     steps:
-      - name: Inspect private kernel without GPU
+      - name: Inspect private kernels without GPU
         shell: bash
         run: |
           set -euo pipefail
           test -n "${KAGGLE_API_TOKEN:-}"
           python -m pip install --quiet "kaggle==2.2.4"
-          kaggle kernels status "${KERNEL_REF}" 2>&1 | tee thinking-status.txt || true
-          kaggle kernels logs "${KERNEL_REF}" > thinking-kernel.log 2>&1 || true
-          tail -n 300 thinking-kernel.log || true
-          kaggle quota --format json | tee thinking-quota.json
+          echo '--- requested status ---'
+          kaggle kernels status "${KERNEL_REF}" 2>&1 || true
+          echo '--- recent kernels via CLI ---'
+          kaggle kernels list --mine --sort-by dateCreated 2>&1 | head -n 80 || true
+          echo '--- CLI help fallback ---'
+          kaggle kernels list --help 2>&1 | head -n 160 || true
+          echo '--- quota ---'
+          kaggle quota --format json
