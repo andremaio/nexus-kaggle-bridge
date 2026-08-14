@@ -1,0 +1,66 @@
+name: Validate AI PR18 Marker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/validate-ai-pr18-marker.txt
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Clone and validate AI PR18
+        shell: bash
+        run: |
+          set -u
+          rm -rf ai
+          git clone --depth 1 --branch agent/intelligence-engine-v1 https://github.com/andremaio/ai.git ai > clone.log 2>&1
+          clone_rc=$?
+          mkdir -p reports/ai-pr18-validation
+          rm -f reports/ai-pr18-validation/*.marker
+          if [[ $clone_rc -ne 0 ]]; then
+            printf 'clone failed\n' > reports/ai-pr18-validation/FAIL.marker
+          else
+            cd ai
+            head_sha="$(git rev-parse HEAD)"
+            python -m pip install --quiet pytest pydantic httpx > ../deps.log 2>&1
+            deps_rc=$?
+            python -m py_compile app/bounded_deliberation.py app/cognitive_core.py app/model_quality_evidence_v1.py scripts/prepare_model_approval_v1.py scripts/benchmark_model_portfolio_v1.py scripts/validate_intelligence_engine_v1.py > ../compile.log 2>&1
+            compile_rc=$?
+            if [[ $deps_rc -eq 0 && $compile_rc -eq 0 ]]; then
+              pytest -q tests/test_bounded_deliberation_v3.py tests/test_model_quality_evidence_v1.py tests/test_cognitive_v3_suite.py > ../pytest.log 2>&1
+              pytest_rc=$?
+              python scripts/validate_intelligence_engine_v1.py > ../validator.log 2>&1
+              validator_rc=$?
+            else
+              pytest_rc=99
+              validator_rc=99
+            fi
+            cd ..
+            {
+              printf 'AI_HEAD=%s\n' "$head_sha"
+              printf 'DEPS_RC=%s\n' "$deps_rc"
+              printf 'COMPILE_RC=%s\n' "$compile_rc"
+              printf 'PYTEST_RC=%s\n' "$pytest_rc"
+              printf 'VALIDATOR_RC=%s\n' "$validator_rc"
+            } > reports/ai-pr18-validation/status.txt
+            if [[ $deps_rc -eq 0 && $compile_rc -eq 0 && $pytest_rc -eq 0 && $validator_rc -eq 0 ]]; then
+              printf 'pass\n' > reports/ai-pr18-validation/PASS.marker
+            else
+              printf 'fail\n' > reports/ai-pr18-validation/FAIL.marker
+              { tail -n 120 compile.log 2>/dev/null; tail -n 220 pytest.log 2>/dev/null; tail -n 120 validator.log 2>/dev/null; } > reports/ai-pr18-validation/failure-tail.txt
+            fi
+          fi
+          git config user.name nexus-validation-bot
+          git config user.email nexus-validation-bot@users.noreply.github.com
+          git add -A reports/ai-pr18-validation
+          git diff --cached --quiet || { git commit -m "validation: record AI PR18 focused result"; git push origin HEAD:main; }
