@@ -21,16 +21,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify Kaggle access and immutable evidence inputs
+      - name: Verify Kaggle access, immutable evidence and dependency resolution
         shell: bash
         run: |
           set -euo pipefail
           test -n "${KAGGLE_API_TOKEN:-}"
           python -m pip install --quiet "kaggle==2.2.4"
+          python -m pip install --dry-run --quiet \
+            "transformers==5.14.1" "peft==0.19.1" "accelerate==1.14.0"
           kaggle quota --format json > quota-before.json
           cat quota-before.json
           python - <<'PY'
-          import hashlib
           import urllib.request
           commit='a10104c50eb4320acda30592c424e75848698df1'
           expected={
