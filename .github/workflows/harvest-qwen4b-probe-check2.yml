@@ -1,55 +1,68 @@
-name: Harvest Qwen3 4B Probe Report Check 2
+name: Diagnose Qwen3 4B Probe
 
 on:
   push:
     branches: [main]
     paths:
       - trigger/harvest-qwen4b-probe-check2.txt
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  harvest:
+  diagnose:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KERNEL_REF: andrmaio/nexus-qwen3-4b-probe-v1
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-fresh-holdout-probe-v1
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Harvest aggregate report if complete
+      - name: Inspect private kernel without compute
         shell: bash
         run: |
           set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
           python -m pip install --quiet "kaggle==2.2.4"
-          status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
-          echo "$status"
-          low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
-          if ! printf '%s' "$low" | grep -Eq 'complete|completed'; then
-            echo "not complete"
-            exit 0
+          kaggle kernels status "${KERNEL_REF}" 2>&1 | tee qwen4b-status.txt || true
+          kaggle kernels logs "${KERNEL_REF}" > qwen4b-kernel.log 2>&1 || true
+          tail -n 1200 qwen4b-kernel.log
+          rm -rf qwen4b-output && mkdir qwen4b-output
+          kaggle kernels output "${KERNEL_REF}" -p qwen4b-output -o || true
+          find qwen4b-output -maxdepth 2 -type f -printf '%p %s bytes\n' | sort | tee qwen4b-output-files.txt || true
+          if [[ -f qwen4b-output/qwen3-4b-probe-failure-v1.json ]]; then
+            echo '--- failure report ---'
+            cat qwen4b-output/qwen3-4b-probe-failure-v1.json
           fi
-          rm -rf harvest-output && mkdir harvest-output
-          kaggle kernels output "${KERNEL_REF}" -p harvest-output -o
-          test -f harvest-output/qwen3-4b-probe-v1.json
-          python - <<'PY'
+          if [[ -f qwen4b-output/qwen3-4b-probe-v1.json ]]; then
+            echo '--- aggregate report exists ---'
+            python - <<'PY'
           import json
           from pathlib import Path
-          report=json.loads(Path('harvest-output/qwen3-4b-probe-v1.json').read_text())
-          for key in ('automatic_training_authorized','automatic_promotion_authorized','automatic_activation_authorized'):
-              if report.get(key) is not False:
-                  raise SystemExit(key+' invariant violated')
-          public={k:v for k,v in report.items() if k not in {'raw_prompts','raw_responses'}}
-          Path('reports').mkdir(exist_ok=True)
-          Path('reports/qwen3-4b-probe-v1.json').write_text(json.dumps(public,ensure_ascii=False,sort_keys=True,indent=2)+'\n')
+          report=json.loads(Path('qwen4b-output/qwen3-4b-probe-v1.json').read_text())
+          safe={k:report.get(k) for k in (
+              'schema','model_id','resolved_revision','gpu','legacy','semantic_safety',
+              'dev_v2','v4_dev_v2','fresh_v3','v4_fresh_v3','fresh_v3_gain_vs_v4',
+              'fresh_v3_safety_gain_vs_v4','fresh_v3_comparison',
+              'capacity_signal_for_isolated_training_experiment','runtime_qualified',
+              'human_review_required','automatic_training_authorized',
+              'automatic_promotion_authorized','automatic_activation_authorized','paid_service_used'
+          ) if k in report}
+          print(json.dumps(safe, ensure_ascii=False, sort_keys=True, indent=2))
           PY
-          git config user.name "nexus-evidence-bot"
-          git config user.email "nexus-evidence-bot@users.noreply.github.com"
-          git add reports/qwen3-4b-probe-v1.json
-          git diff --cached --quiet && exit 0
-          git commit -m "evidence: record sanitized Qwen3 4B probe report"
-          git push origin HEAD:main
+          fi
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-qwen3-4b-probe-diagnostics
+          path: |
+            qwen4b-status.txt
+            qwen4b-kernel.log
+            qwen4b-output-files.txt
+            qwen4b-output/qwen3-4b-probe-failure-v1.json
+            qwen4b-output/qwen3-4b-probe-v1.json
+          if-no-files-found: ignore
+          retention-days: 7
