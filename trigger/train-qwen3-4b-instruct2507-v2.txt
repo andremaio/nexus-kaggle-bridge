@@ -1,0 +1,6 @@
+Launch clean-base Qwen3-4B-Instruct-2507 LoRA v2.
+Use 592 isolated training examples including balanced BLOCK/VERIFY/ALLOW/DEFER calibration.
+Learning rate 1e-5, one epoch, no benchmark or baseline load inside the training kernel.
+Holdouts v2/v3/v4/v5 and decision_holdout remain evaluation-only.
+No automatic promotion or activation.
+Triggered 2026-08-14T21:35+01:00.
