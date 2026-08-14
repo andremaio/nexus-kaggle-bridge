@@ -1,7 +1,8 @@
-Relaunch clean-base Qwen3-4B-Instruct-2507 LoRA v2 with explicit CUDA bootstrap and diagnostics.
+Relaunch clean-base Qwen3-4B-Instruct-2507 LoRA v2 from the persisted isolation receipt.
 Use 592 isolated training examples including balanced BLOCK/VERIFY/ALLOW/DEFER calibration.
 Learning rate 1e-5, one epoch, no benchmark or baseline load inside the training kernel.
-All 228 evaluation cases remain evaluation-only, with zero near-match violations.
+All 228 evaluation cases remain evaluation-only; the persisted gate has zero near-match violations.
+Training sources are pinned to immutable commit and verified locally by Git blob SHA-1, without GitHub API metadata calls.
 Require exactly one visible T4 after bootstrap; fail before training otherwise.
 No automatic promotion or activation.
-Triggered 2026-08-14T21:44+01:00.
+Triggered 2026-08-14T21:49+01:00.
