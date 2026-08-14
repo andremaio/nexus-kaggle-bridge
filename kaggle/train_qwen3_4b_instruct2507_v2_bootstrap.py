@@ -10,8 +10,8 @@ import subprocess
 import sys
 import urllib.request
 
-SCRIPT_COMMIT = '21f40a2171278ad026d042a45759d87969c4b177'
-SCRIPT_BLOB = '74be780ec921417915aeb40c7468f0fd1660ac5c'
+SCRIPT_COMMIT = '173a6263c0988d15015ecb294f9e4416facc4498'
+SCRIPT_BLOB = 'dd10e25c30505243dfb950f9f042a3245547685e'
 SCRIPT_URL = (
     'https://raw.githubusercontent.com/andremaio/nexus-kaggle-bridge/'
     f'{SCRIPT_COMMIT}/kaggle/train_qwen3_4b_instruct2507_lora_v2.py'
