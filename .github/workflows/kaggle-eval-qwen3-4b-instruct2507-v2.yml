@@ -26,9 +26,11 @@ jobs:
           set -euo pipefail
           test -n "${KAGGLE_API_TOKEN:-}"
           python -m pip install --quiet "kaggle==2.2.4"
-          python -m py_compile kaggle/eval_qwen3_4b_instruct2507_lora_v2.py
+          python -m py_compile kaggle/eval_qwen3_4b_instruct2507_lora_v2.py kaggle/eval_qwen3_4b_instruct2507_v2_bootstrap.py
           grep -F "V5_BLOB = 'f8c144f2c814c71837999dc4ec80b84c057c6ac4'" kaggle/eval_qwen3_4b_instruct2507_lora_v2.py
           grep -F "DECISION_BLOB = 'f852a2c9334f7b37f3a2ad805f605031aedeb26d'" kaggle/eval_qwen3_4b_instruct2507_lora_v2.py
+          grep -F "SCRIPT_BLOB = 'a01d2d33c8d965340e6a4c40a209ea01271d80e1'" kaggle/eval_qwen3_4b_instruct2507_v2_bootstrap.py
+          grep -F "CUDA_VISIBLE_DEVICES'] = '0'" kaggle/eval_qwen3_4b_instruct2507_v2_bootstrap.py
           grep -F "CUDA_FREE_AFTER_ADAPTED" kaggle/eval_qwen3_4b_instruct2507_lora_v2.py
           kaggle quota --format json | tee quota-before.json
       - name: Prepare evaluation kernel
@@ -36,12 +38,12 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf kernel && mkdir kernel
-          cp kaggle/eval_qwen3_4b_instruct2507_lora_v2.py kernel/
+          cp kaggle/eval_qwen3_4b_instruct2507_v2_bootstrap.py kernel/
           cat > kernel/kernel-metadata.json <<'JSON'
           {
             "id":"andrmaio/nexus-qwen3-4b-instruct-2507-lora-v2-eval",
             "title":"NEXUS Qwen3 4B Instruct 2507 LoRA v2 Eval",
-            "code_file":"eval_qwen3_4b_instruct2507_lora_v2.py",
+            "code_file":"eval_qwen3_4b_instruct2507_v2_bootstrap.py",
             "language":"python",
             "kernel_type":"script",
             "is_private":true,
