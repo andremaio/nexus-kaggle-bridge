@@ -1,4 +1,5 @@
-Launch Qwen3-4B fresh-holdout capacity probe.
-Resolve and record immutable model revision at runtime.
+Launch repaired Qwen3-4B fresh-holdout capacity probe.
+Inputs preflighted and pinned to immutable commit a10104c50eb4320acda30592c424e75848698df1.
 Evaluate legacy + v2 dev + frozen v3 fresh holdout and compare against Qwen3-0.6B v4.
 No automatic training, promotion or runtime activation.
+Triggered 2026-08-14T21:08+01:00.
