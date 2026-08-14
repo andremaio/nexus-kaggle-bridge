@@ -1,0 +1,168 @@
+name: NEXUS Qwen3 1.7B LoRA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/train-qwen3-1-7b.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-1-7b-lora-v1
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Kaggle access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle quota --format json > quota-before.json
+          cat quota-before.json
+
+      - name: Prepare private Qwen3 1.7B LoRA kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel
+          mkdir kernel
+          cp kaggle/train_qwen3_1_7b_bootstrap.py kernel/train_qwen3_1_7b_bootstrap.py
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id": "andrmaio/nexus-qwen3-1-7b-lora-v1",
+            "title": "NEXUS Qwen3 1.7B LoRA v1",
+            "code_file": "train_qwen3_1_7b_bootstrap.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": true,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "machine_shape": "NvidiaTeslaT4",
+            "keywords": [],
+            "dataset_sources": [],
+            "kernel_sources": ["andrmaio/nexus-qwen3-0-6b-lora-v4"],
+            "competition_sources": [],
+            "model_sources": []
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+
+      - name: Launch gated Qwen3 1.7B LoRA
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --accelerator NvidiaTeslaT4 --timeout 9000 | tee kaggle-launch.txt
+
+      - name: Wait for training result
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 420); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            printf '%s\n' "$status" | tee kaggle-status.txt
+            low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$low" | grep -Eq 'complete|completed'; then final="complete"; break; fi
+            if printf '%s' "$low" | grep -Eq 'error|failed|failure|cancel|404|not found'; then final="failed"; break; fi
+            sleep 20
+          done
+          if [[ -z "$final" ]]; then final="timeout"; fi
+          echo "KAGGLE_FINAL_STATE=$final" | tee -a "$GITHUB_ENV"
+
+      - name: Collect training logs
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kaggle-kernel.log 2>&1
+          tail -n 900 kaggle-kernel.log || true
+          kaggle quota --format json > quota-after.json
+          cat quota-after.json
+
+      - name: Download and verify evidence
+        if: env.KAGGLE_FINAL_STATE == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p kaggle-output
+          kaggle kernels output "${KERNEL_REF}" -p kaggle-output -o
+          find kaggle-output -maxdepth 3 -type f -printf '%p %s bytes\n' | sort | tee kaggle-output-files.txt
+          test -f kaggle-output/qwen3-1.7b-candidate-eval-v1.json
+          test -f kaggle-output/qwen3-1.7b-run-manifest-v1.json
+          test -f kaggle-output/qwen3-1.7b-dataset-manifest-v1.json
+          test -f kaggle-output/nexus-qwen3-1.7b-candidate-v1.zip
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          report=json.loads(Path('kaggle-output/qwen3-1.7b-candidate-eval-v1.json').read_text())
+          run=json.loads(Path('kaggle-output/qwen3-1.7b-run-manifest-v1.json').read_text())
+          dataset=json.loads(Path('kaggle-output/qwen3-1.7b-dataset-manifest-v1.json').read_text())
+          bundle=Path('kaggle-output/nexus-qwen3-1.7b-candidate-v1.zip')
+          print('MODEL=' + str(run.get('model_id')))
+          print('REVISION=' + str(run.get('revision')))
+          print('GPU=' + str(run.get('gpu')))
+          print('TRAIN_LOSS=' + str(run.get('train_loss')))
+          print('TRAIN_SECONDS=' + str(run.get('train_seconds')))
+          print('BASE_LEGACY=' + json.dumps(report.get('base_legacy'), sort_keys=True))
+          print('CANDIDATE_LEGACY=' + json.dumps(report.get('candidate_legacy'), sort_keys=True))
+          print('CANDIDATE_SEMANTIC=' + json.dumps(report.get('candidate_semantic_safety'), sort_keys=True))
+          print('BASE_HOLDOUT=' + json.dumps(report.get('base_holdout'), sort_keys=True))
+          print('CANDIDATE_HOLDOUT=' + json.dumps(report.get('candidate_holdout'), sort_keys=True))
+          print('V4_HOLDOUT=' + json.dumps(report.get('v4_holdout'), sort_keys=True))
+          print('GAIN_VS_BASE=' + str(report.get('holdout_gain_vs_base')))
+          print('GAIN_VS_V4=' + str(report.get('holdout_gain_vs_v4')))
+          print('CRITICAL_REGRESSIONS=' + json.dumps(report.get('critical_regressions_vs_v4'), sort_keys=True))
+          print('ELIGIBLE_FOR_HUMAN_REVIEW=' + str(report.get('eligible_for_human_review')))
+          print('NEAR_EVAL_GATE=' + json.dumps(dataset.get('near_evaluation_gate'), sort_keys=True))
+          print('BUNDLE_SHA256=' + hashlib.sha256(bundle.read_bytes()).hexdigest())
+          if report.get('automatic_promotion_authorized') is not False:
+              raise SystemExit('automatic promotion invariant violated')
+          if report.get('automatic_activation_authorized') is not False:
+              raise SystemExit('automatic activation invariant violated')
+          if run.get('paid_service_used') is not False:
+              raise SystemExit('zero-cost invariant violated')
+          PY
+
+      - name: Upload Qwen3 1.7B training evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-qwen3-1-7b-lora-evidence
+          path: |
+            quota-before.json
+            quota-after.json
+            kaggle-launch.txt
+            kaggle-status.txt
+            kaggle-kernel.log
+            kaggle-output-files.txt
+            kaggle-output/qwen3-1.7b-candidate-eval-v1.json
+            kaggle-output/qwen3-1.7b-run-manifest-v1.json
+            kaggle-output/qwen3-1.7b-dataset-manifest-v1.json
+            kaggle-output/qwen3-1.7b-holdout-details-v1.json
+            kaggle-output/qwen3-1.7b-base-holdout-details-v1.json
+            kaggle-output/qwen3-0.6b-v4-holdout-details-v1.json
+            kaggle-output/qwen3-1.7b-base-predictions-v1.jsonl
+            kaggle-output/qwen3-1.7b-candidate-predictions-v1.jsonl
+            kaggle-output/qwen3-0.6b-v4-holdout-predictions-v1.jsonl
+            kaggle-output/nexus-qwen3-1.7b-candidate-v1.zip
+            kaggle-output/qwen3-1.7b-training-failure-v1.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Fail closed unless complete
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${KAGGLE_FINAL_STATE:-}" = "complete"
