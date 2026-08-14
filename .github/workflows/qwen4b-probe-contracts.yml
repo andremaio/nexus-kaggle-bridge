@@ -30,8 +30,11 @@ jobs:
           bootstrap=Path('kaggle/probe_qwen3_4b_bootstrap.py').read_text()
           checks={
             'qwen4b_model': "MODEL_ID = 'Qwen/Qwen3-4B'" in probe,
-            'immutable_data_commit': "DATA_COMMIT = '96244a34d255ea6fc4d3cd8fbe8d161ebae47fd6'" in probe,
-            'fresh_v3_required': "'holdout_v3.jsonl'" in probe and "len(fresh_v3) == 60" in probe,
+            'immutable_data_commit': "DATA_COMMIT = 'a10104c50eb4320acda30592c424e75848698df1'" in probe,
+            'fresh_v3_required': "'holdout_v3.jsonl'" in probe and "validate_frozen_suite(fresh_v3, prefix='g', count=48" in probe,
+            'dev_v2_frozen': "validate_frozen_suite(dev_v2, prefix='h', count=48" in probe,
+            'legacy_frozen': "validate_frozen_suite(fixed, prefix='b', count=20" in probe and "validate_frozen_suite(adversarial, prefix='a', count=20" in probe,
+            'suite_id_validation': 'case IDs/order do not match frozen contract' in probe,
             'v2_is_dev': "dev_v2" in probe and "fresh_v3" in probe,
             'v4_comparison': 'v4_fresh_score' in probe and 'fresh_v3_comparison' in probe,
             'critical_regressions': "critical_regressions" in probe,
@@ -41,6 +44,7 @@ jobs:
             'one_gpu_before_torch': "os.environ['CUDA_VISIBLE_DEVICES'] = '0'" in bootstrap,
             'temp_hf_cache': "os.environ['HF_HOME'] = '/kaggle/temp/hf-cache'" in bootstrap,
             'torchao_removed': "pip', 'uninstall', '-y', 'torchao'" in bootstrap,
+            'probe_sha_pinned': "PROBE_COMMIT = '59fe1fc89a95b769b7e982a6b1f570aea5b90d4f'" in bootstrap and "PROBE_BLOB_SHA = 'dee14013ce41ad8baa0032004c4761fd8b6239e3'" in bootstrap,
             'no_auto_training': "'automatic_training_authorized': False" in probe,
             'no_auto_promotion': "'automatic_promotion_authorized': False" in probe,
             'no_auto_activation': "'automatic_activation_authorized': False" in probe,
