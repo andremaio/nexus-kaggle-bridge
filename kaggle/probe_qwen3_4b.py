@@ -93,7 +93,6 @@ def install_stack() -> None:
     subprocess.check_call([
         sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '-q',
         'transformers==5.14.1', 'peft==0.19.1', 'accelerate==1.14.0',
-        'huggingface_hub>=0.36,<1.0',
     ])
 
 
