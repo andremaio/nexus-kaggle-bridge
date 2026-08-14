@@ -1,0 +1,1 @@
+Inspect the existing Qwen3-4B-Instruct-2507 holdout-v4 evaluation kernel. Do not relaunch GPU.
