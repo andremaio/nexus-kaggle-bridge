@@ -1,0 +1,4 @@
+Launch privacy-safe Qwen3-4B-Thinking-2507 deep-reasoning probe against frozen holdout_v3 and semantic safety cases.
+Use only final answers for scoring; never decode or persist thinking content.
+Compare directly with Qwen3-0.6B v4. No automatic training, promotion or activation.
+Triggered 2026-08-14T21:34+01:00.
