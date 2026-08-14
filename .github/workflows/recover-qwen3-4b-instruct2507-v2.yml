@@ -1,0 +1,128 @@
+name: Recover Qwen3 4B Instruct LoRA v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/recover-qwen3-4b-instruct2507-v2.txt
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-instruct-2507-lora-v2
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Recover completed kernel outputs without GPU relaunch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle kernels status "${KERNEL_REF}" | tee kernel-status.txt || true
+          rm -rf recovered && mkdir recovered
+          kaggle kernels output "${KERNEL_REF}" -p recovered -o | tee recovery.txt
+          find recovered -maxdepth 5 -type f -printf '%p %s bytes\n' | sort | tee recovered-files.txt
+          test -f recovered/nexus-qwen3-4b-instruct2507-adapter-v2/adapter_config.json
+          test -f recovered/nexus-qwen3-4b-instruct2507-adapter-v2/adapter_model.safetensors
+          test -f recovered/qwen3-4b-instruct2507-lora-v2.json
+          test -f recovered/qwen3-4b-instruct2507-dataset-manifest-v2.json
+
+      - name: Verify and persist aggregate training evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path('recovered/nexus-qwen3-4b-instruct2507-adapter-v2')
+          report=json.loads(Path('recovered/qwen3-4b-instruct2507-lora-v2.json').read_text())
+          dataset=json.loads(Path('recovered/qwen3-4b-instruct2507-dataset-manifest-v2.json').read_text())
+          if report.get('schema')!='nexus.training.qwen3-4b-instruct2507-lora.v2':
+              raise SystemExit('training schema mismatch')
+          if report.get('model_revision')!='cdbee75f17c01a7cc42f958dc650907174af0554':
+              raise SystemExit('model revision mismatch')
+          if report.get('evaluation_performed_in_training_kernel') is not False:
+              raise SystemExit('training/eval separation violated')
+          if report.get('baseline_loaded_after_training') is not False:
+              raise SystemExit('baseline separation violated')
+          for key in ('automatic_promotion_authorized','automatic_activation_authorized','paid_service_used'):
+              if report.get(key) is not False:
+                  raise SystemExit(f'invariant failed: {key}')
+          if dataset.get('examples') != 592:
+              raise SystemExit('dataset total mismatch')
+          expected_counts={
+              'seed_sft_v1.jsonl':24,
+              'seed_sft_v2.jsonl':80,
+              'seed_sft_v4.jsonl':364,
+              'seed_sft_v5.jsonl':60,
+              'seed_sft_v6_decision_balance.jsonl':64,
+          }
+          if dataset.get('files') != expected_counts:
+              raise SystemExit('dataset file counts mismatch')
+          if dataset.get('decision_balance') != {'BLOCK':16,'VERIFY':16,'ALLOW':16,'DEFER':16}:
+              raise SystemExit('decision balance mismatch')
+          files={}
+          for path in sorted(root.iterdir()):
+              if path.is_file():
+                  files[path.name]={
+                      'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+                      'bytes':path.stat().st_size,
+                  }
+          if 'adapter_model.safetensors' not in files:
+              raise SystemExit('adapter safetensors missing')
+          persisted={
+              'schema':'nexus.training.qwen3-4b-instruct2507-lora.v2.recovered',
+              'source_kernel':'andrmaio/nexus-qwen3-4b-instruct-2507-lora-v2',
+              'model_id':report.get('model_id'),
+              'model_revision':report.get('model_revision'),
+              'gpu':report.get('gpu'),
+              'seed':report.get('seed'),
+              'training':report.get('training'),
+              'dataset':dataset,
+              'adapter_files':files,
+              'kernel_training_completed':True,
+              'gpu_relaunched_for_recovery':False,
+              'human_review_required':True,
+              'automatic_promotion_authorized':False,
+              'automatic_activation_authorized':False,
+              'paid_service_used':False,
+          }
+          Path('reports').mkdir(exist_ok=True)
+          Path('reports/qwen3-4b-instruct2507-lora-v2-training.json').write_text(
+              json.dumps(persisted,ensure_ascii=False,sort_keys=True,indent=2)+'\n'
+          )
+          print('TRAINING_LOSS=' + str((report.get('training') or {}).get('training_loss')))
+          print('ADAPTER_SHA256=' + files['adapter_model.safetensors']['sha256'])
+          print('ADAPTER_BYTES=' + str(files['adapter_model.safetensors']['bytes']))
+          PY
+          tar -czf qwen3-4b-instruct2507-adapter-v2-recovered.tgz -C recovered nexus-qwen3-4b-instruct2507-adapter-v2
+          git config user.name nexus-evidence-bot
+          git config user.email nexus-evidence-bot@users.noreply.github.com
+          git add reports/qwen3-4b-instruct2507-lora-v2-training.json
+          git diff --cached --quiet || { git commit -m "evidence: persist recovered Qwen3 4B LoRA v2 training"; git push origin HEAD:main; }
+
+      - name: Upload recovered v2 adapter evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwen3-4b-instruct2507-adapter-v2-recovered
+          path: |
+            kernel-status.txt
+            recovery.txt
+            recovered-files.txt
+            reports/qwen3-4b-instruct2507-lora-v2-training.json
+            recovered/qwen3-4b-instruct2507-lora-v2.json
+            recovered/qwen3-4b-instruct2507-dataset-manifest-v2.json
+            qwen3-4b-instruct2507-adapter-v2-recovered.tgz
+          if-no-files-found: error
+          retention-days: 14
