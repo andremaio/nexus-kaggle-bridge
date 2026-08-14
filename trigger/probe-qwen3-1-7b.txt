@@ -1,3 +1,4 @@
 Launch Qwen3-1.7B deep-reasoning challenger probe.
 Compare against trained Qwen3-0.6B v4 on fixed/adversarial, semantic safety, and pinned holdout v2.
+Run through one-GPU bootstrap with resolved Kaggle kernel slug.
 No training and no automatic promotion.
