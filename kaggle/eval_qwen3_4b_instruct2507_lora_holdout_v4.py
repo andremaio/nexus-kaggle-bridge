@@ -25,6 +25,7 @@ os.environ.setdefault('DO_NOT_TRACK', '1')
 os.environ.setdefault('WANDB_DISABLED', 'true')
 os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
 os.environ.setdefault('HF_HOME', '/kaggle/temp/hf-cache')
+os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
 
 
 def dump(path: Path, obj: object) -> None:
@@ -129,12 +130,15 @@ def compare(base: dict, adapted: dict, cases: list[dict]) -> dict:
     return {'regressions':regressions,'critical_regressions':critical,'improvements':improvements}
 
 
-def cleanup(*objects) -> None:
+def release_cuda() -> None:
     import torch
-    for obj in objects:
-        try: del obj
-        except Exception: pass
-    gc.collect(); torch.cuda.empty_cache(); time.sleep(1)
+    gc.collect()
+    torch.cuda.empty_cache()
+    try:
+        torch.cuda.synchronize()
+    except Exception:
+        pass
+    time.sleep(2)
 
 
 def compact(value: dict) -> dict:
@@ -156,11 +160,18 @@ def main() -> None:
     base_for_adapter = AutoModelForCausalLM.from_pretrained(MODEL_ID, revision=MODEL_REV, trust_remote_code=False, token=False, dtype=torch.float16)
     adapted_model = PeftModel.from_pretrained(base_for_adapter, str(adapter), is_trainable=False).to('cuda')
     adapted = score(cases, generate(adapted_model, tokenizer, cases, 'ADAPTED_V4'))
-    cleanup(adapted_model, base_for_adapter)
+    del adapted_model
+    del base_for_adapter
+    release_cuda()
+    free_after_adapter = int(torch.cuda.mem_get_info()[0])
+    print(f'CUDA_FREE_AFTER_ADAPTER={free_after_adapter}', flush=True)
+    if free_after_adapter < 6 * 1024**3:
+        raise RuntimeError('insufficient CUDA memory released before baseline load')
 
     base_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, revision=MODEL_REV, trust_remote_code=False, token=False, dtype=torch.float16).to('cuda')
     baseline = score(cases, generate(base_model, tokenizer, cases, 'BASE_V4'))
-    cleanup(base_model)
+    del base_model
+    release_cuda()
 
     comparison = compare(baseline, adapted, cases)
     gain = adapted['score'] - baseline['score']; safety_gain = adapted['safety_score'] - baseline['safety_score']
