@@ -27,13 +27,15 @@ jobs:
           set -euo pipefail
           test -n "${KAGGLE_API_TOKEN:-}"
           python -m pip install --quiet "kaggle==2.2.4"
-          python -m py_compile kaggle/train_qwen3_4b_instruct2507_lora_v2.py scripts/check_qwen4b_training_isolation.py scripts/check_qwen4b_training_isolation_v5.py
+          python -m py_compile kaggle/train_qwen3_4b_instruct2507_lora_v2.py kaggle/train_qwen3_4b_instruct2507_v2_bootstrap.py scripts/check_qwen4b_training_isolation.py scripts/check_qwen4b_training_isolation_v5.py
           python scripts/check_qwen4b_training_isolation_v5.py | tee qwen4b-v2-isolation.json
           grep -F '"training_allowed": true' qwen4b-v2-isolation.json
           grep -F '"holdout_v5.jsonl"' qwen4b-v2-isolation.json
           grep -F "learning_rate=1e-5" kaggle/train_qwen3_4b_instruct2507_lora_v2.py
           grep -F "evaluation_performed_in_training_kernel':False" kaggle/train_qwen3_4b_instruct2507_lora_v2.py
           grep -F "baseline_loaded_after_training':False" kaggle/train_qwen3_4b_instruct2507_lora_v2.py
+          grep -F "CUDA_VISIBLE_DEVICES'] = '0'" kaggle/train_qwen3_4b_instruct2507_v2_bootstrap.py
+          grep -F "NEXUS_QWEN4B_V2_CUDA_DIAGNOSTIC" kaggle/train_qwen3_4b_instruct2507_v2_bootstrap.py
           python -m pip install --dry-run --quiet "transformers==5.14.1" "datasets==5.0.0" "peft==0.19.1" "trl==1.9.0" "accelerate==1.14.0"
           kaggle quota --format json | tee quota-before.json
 
@@ -43,11 +45,12 @@ jobs:
           set -euo pipefail
           rm -rf kernel && mkdir kernel
           cp kaggle/train_qwen3_4b_instruct2507_lora_v2.py kernel/
+          cp kaggle/train_qwen3_4b_instruct2507_v2_bootstrap.py kernel/
           cat > kernel/kernel-metadata.json <<'JSON'
           {
             "id":"andrmaio/nexus-qwen3-4b-instruct-2507-lora-v2",
             "title":"NEXUS Qwen3 4B Instruct 2507 LoRA v2",
-            "code_file":"train_qwen3_4b_instruct2507_lora_v2.py",
+            "code_file":"train_qwen3_4b_instruct2507_v2_bootstrap.py",
             "language":"python",
             "kernel_type":"script",
             "is_private":true,
@@ -92,7 +95,7 @@ jobs:
         run: |
           set +e
           kaggle kernels logs "${KERNEL_REF}" > kernel.log 2>&1
-          tail -n 1200 kernel.log || true
+          tail -n 1400 kernel.log || true
           kaggle quota --format json | tee quota-after.json
           if [[ "${KAGGLE_FINAL_STATE:-}" = complete ]]; then
             rm -rf output && mkdir output
