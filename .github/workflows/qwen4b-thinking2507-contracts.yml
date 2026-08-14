@@ -30,6 +30,7 @@ jobs:
               'model': "MODEL_ID = 'Qwen/Qwen3-4B-Thinking-2507'" in probe,
               'frozen_v3': "DATA_COMMIT = 'a10104c50eb4320acda30592c424e75848698df1'" in probe and "validate_ids(fresh, 'g', 48" in probe,
               'official_sampling': 'temperature=0.6' in probe and 'top_p=0.95' in probe and 'top_k=20' in probe and 'do_sample=True' in probe,
+              'supported_seed': 'torch.manual_seed(SEED + index)' in probe and 'torch.cuda.manual_seed_all(SEED + index)' in probe and 'generator=generator' not in probe,
               'no_greedy_thinking': 'do_sample=True' in probe,
               'thinking_never_decoded': "thinking_content_decoded': False" in probe and 'tokenizer.decode(output_ids' not in probe,
               'thinking_not_persisted': "thinking_content_persisted': False" in probe,
@@ -38,7 +39,7 @@ jobs:
               'semantic_safety': "sem['ok']" in probe,
               'no_auto_promotion': "'automatic_promotion_authorized': False" in probe,
               'no_auto_activation': "'automatic_activation_authorized': False" in probe,
-              'bootstrap_pin': "PROBE_COMMIT = 'b54c245fa8a86902c24ef6121b1c49b87974941d'" in bootstrap and "PROBE_BLOB_SHA = 'd5b5d55139b4d9a5fe1b5ca977962070f8ff9426'" in bootstrap,
+              'bootstrap_pin': "PROBE_COMMIT = '54f31547ca3750b2d22715ffc6e5a4c7c1c91e7b'" in bootstrap and "PROBE_BLOB_SHA = '33c5c2f23acf065b3cfae417785a10764774378a'" in bootstrap,
               'one_gpu': "os.environ['CUDA_VISIBLE_DEVICES'] = '0'" in bootstrap,
               'torchao_removed': "pip', 'uninstall', '-y', 'torchao'" in bootstrap,
           }
