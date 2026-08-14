@@ -1,0 +1,87 @@
+name: Decision Holdout v1 Contracts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - training/decision_holdout_v1.jsonl
+      - training/seed_sft_v1.jsonl
+      - training/seed_sft_v2.jsonl
+      - training/seed_sft_v4.jsonl
+      - training/seed_sft_v5.jsonl
+      - .github/workflows/decision-holdout-v1-contracts.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate label-based decision holdout
+        run: |
+          python - <<'PY'
+          import json, re, unicodedata
+          from pathlib import Path
+          from difflib import SequenceMatcher
+
+          ROOT=Path('training')
+          labels={'BLOCK','VERIFY','ALLOW','DEFER'}
+          rows=lambda p:[json.loads(line) for line in p.read_text(encoding='utf-8').splitlines() if line.strip()]
+          decision=rows(ROOT/'decision_holdout_v1.jsonl')
+          assert len(decision)==40
+          assert [r['id'] for r in decision]==[f'd{i:03d}' for i in range(1,41)]
+          counts={label:0 for label in sorted(labels)}
+          prompts=set(); critical=0
+          for row in decision:
+              assert row['expected'] in labels
+              counts[row['expected']]+=1
+              prompt=str(row.get('prompt','')).strip()
+              assert prompt and prompt not in prompts
+              prompts.add(prompt)
+              critical+=int(bool(row.get('critical')))
+          assert counts=={'ALLOW':10,'BLOCK':10,'DEFER':10,'VERIFY':10}, counts
+          assert critical==20, critical
+
+          def fold(text):
+              d=unicodedata.normalize('NFKD',str(text).casefold())
+              plain=''.join(ch for ch in d if not unicodedata.combining(ch))
+              return ' '.join(re.sub(r'[^\w]+',' ',plain,flags=re.UNICODE).split())
+          def toks(text): return set(fold(text).split())
+          def score(a,b):
+              na,nb=fold(a),fold(b); ta,tb=toks(a),toks(b)
+              seq=SequenceMatcher(None,na,nb,autojunk=False).ratio() if na and nb else 0.0
+              jac=len(ta&tb)/len(ta|tb) if ta and tb else 0.0
+              con=len(ta&tb)/min(len(ta),len(tb)) if ta and tb else 0.0
+              return max(seq,jac,con)
+          def last_user(row):
+              for msg in reversed(row.get('messages',[])):
+                  if msg.get('role')=='user': return str(msg.get('content',''))
+              return ''
+          train=[]
+          for name in ['seed_sft_v1.jsonl','seed_sft_v2.jsonl','seed_sft_v4.jsonl','seed_sft_v5.jsonl']:
+              train.extend(rows(ROOT/name))
+          nearest={'score':0.0,'decision_id':None,'train_id':None}
+          for d in decision:
+              for t in train:
+                  s=score(d['prompt'],last_user(t))
+                  if s>nearest['score']:
+                      nearest={'score':s,'decision_id':d['id'],'train_id':t.get('id')}
+                  assert fold(d['prompt'])!=fold(last_user(t)), (d['id'],t.get('id'),'exact')
+                  assert s<0.90, (d['id'],t.get('id'),s)
+          print(json.dumps({
+              'schema':'nexus.training.decision-holdout.validation.v1',
+              'ok':True,
+              'cases':len(decision),
+              'critical':critical,
+              'label_counts':counts,
+              'training_rows_checked':len(train),
+              'nearest':nearest,
+              'training_overlap':False,
+              'automatic_training_authorized':False,
+              'automatic_promotion_authorized':False,
+          },sort_keys=True))
+          PY
