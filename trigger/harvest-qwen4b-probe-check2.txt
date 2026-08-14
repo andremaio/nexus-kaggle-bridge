@@ -1,1 +1,1 @@
-Collect non-compute diagnostics from the failed Qwen3-4B fresh-holdout probe using the actual Kaggle slug. 2026-08-14T21:05+01:00
+Collect non-compute live diagnostics from the current dependency-validated Qwen3-4B fresh-holdout probe. 2026-08-14T21:26+01:00
