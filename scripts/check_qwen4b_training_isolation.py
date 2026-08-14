@@ -8,6 +8,7 @@ import unicodedata
 import urllib.request
 
 DATA_COMMIT = "abfc1851b447b5d227fd7e80a69a8c33227f725f"
+LEGACY_EVAL_COMMIT = "a10104c50eb4320acda30592c424e75848698df1"
 V4_COMMIT = "4e9bc90266d6b5a3c055f48705e61fbbf343764a"
 RAW = f"https://raw.githubusercontent.com/andremaio/nexus-kaggle-bridge/{DATA_COMMIT}/training"
 API = "https://api.github.com/repos/andremaio/nexus-kaggle-bridge/contents/training"
@@ -19,10 +20,10 @@ TRAIN_FILES = {
     "seed_sft_v6_decision_balance.jsonl": "73e2da7b6926f948f16e7a9e3dbf9311ea94147c",
 }
 EVAL_FILES = {
-    "benchmark_fixed_v1.jsonl": (DATA_COMMIT, "01992f104fb1945a31a99130006ad1b1579aa62f"),
-    "benchmark_adversarial_v1.jsonl": (DATA_COMMIT, "d3eab85cde1807b986d8b8e5246022b2079958cc"),
-    "holdout_v2.jsonl": (DATA_COMMIT, "e2c44c002ccc5ae8ffb0c40b7d4bbc7964c3c2f5"),
-    "holdout_v3.jsonl": (DATA_COMMIT, "46ba39ad8ed8398a9092535fcd1563b162aa69aa"),
+    "benchmark_fixed_v1.jsonl": (LEGACY_EVAL_COMMIT, "01992f104fb1945a31a99130006ad1b1579aa62f"),
+    "benchmark_adversarial_v1.jsonl": (LEGACY_EVAL_COMMIT, "d3eab85cde1807b986d8b8e5246022b2079958cc"),
+    "holdout_v2.jsonl": (LEGACY_EVAL_COMMIT, "e2c44c002ccc5ae8ffb0c40b7d4bbc7964c3c2f5"),
+    "holdout_v3.jsonl": (LEGACY_EVAL_COMMIT, "46ba39ad8ed8398a9092535fcd1563b162aa69aa"),
     "decision_holdout_v1.jsonl": (DATA_COMMIT, "f852a2c9334f7b37f3a2ad805f605031aedeb26d"),
     "holdout_v4.jsonl": (V4_COMMIT, "484ebf104d4bd28b8b484030c9e6b31eefa8d853"),
 }
@@ -139,6 +140,7 @@ def main() -> int:
     result = {
         "schema": "nexus.training-isolation.qwen3-4b.v3",
         "data_commit": DATA_COMMIT,
+        "legacy_eval_commit": LEGACY_EVAL_COMMIT,
         "holdout_v4_commit": V4_COMMIT,
         "train_examples": len(train_rows),
         "decision_balance_examples": 64,
