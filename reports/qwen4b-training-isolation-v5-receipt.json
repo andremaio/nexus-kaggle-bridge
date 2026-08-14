@@ -1,0 +1,42 @@
+{
+  "schema": "nexus.training-isolation.receipt.qwen3-4b.v1",
+  "source_workflow_run_id": 31843219046,
+  "source_workflow_head_sha": "3ef7e05d29d0bb3add8a5826fcaf251221ac9cf1",
+  "source_artifact_id": 9235004460,
+  "source_artifact_zip_sha256": "69cbaa219e20504f79a1151eb5e4cda2695719df8b2af5a98e4324829b91a3a6",
+  "data_commit": "abfc1851b447b5d227fd7e80a69a8c33227f725f",
+  "legacy_eval_commit": "a10104c50eb4320acda30592c424e75848698df1",
+  "holdout_v4_commit": "4e9bc90266d6b5a3c055f48705e61fbbf343764a",
+  "holdout_v5_commit": "f6b583b9c0391a9c939b66fa52b777ec8d7f2f3c",
+  "train_examples": 592,
+  "decision_balance_examples": 64,
+  "evaluation_cases": 228,
+  "evaluation_sets": {
+    "benchmark_adversarial_v1.jsonl": {"cases": 20, "near_matches": 0},
+    "benchmark_fixed_v1.jsonl": {"cases": 20, "near_matches": 0},
+    "decision_holdout_v1.jsonl": {"cases": 40, "near_matches": 0},
+    "holdout_v2.jsonl": {"cases": 48, "near_matches": 0},
+    "holdout_v3.jsonl": {"cases": 48, "near_matches": 0},
+    "holdout_v4.jsonl": {"cases": 20, "near_matches": 0},
+    "holdout_v5.jsonl": {"cases": 32, "near_matches": 0}
+  },
+  "sequence_limit": 0.9,
+  "token_jaccard_limit": 0.82,
+  "nearest": {
+    "train_id": "communication-002",
+    "eval_id": "b012",
+    "sequence_ratio": 0.857143,
+    "token_jaccard": 0.666667
+  },
+  "violation_count": 0,
+  "training_allowed": true,
+  "decision_holdout_used_for_training": false,
+  "fresh_v3_used_for_training": false,
+  "fresh_v4_used_for_training": false,
+  "fresh_v4_used_for_hyperparameter_selection": false,
+  "fresh_v5_used_for_training": false,
+  "fresh_v5_used_for_hyperparameter_selection": false,
+  "automatic_training_authorized": false,
+  "automatic_promotion_authorized": false,
+  "automatic_activation_authorized": false
+}
