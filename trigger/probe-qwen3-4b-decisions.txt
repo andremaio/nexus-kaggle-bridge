@@ -1,0 +1,3 @@
+Launch Qwen3-4B label-based decision probe.
+Evaluate 40 frozen BLOCK/VERIFY/ALLOW/DEFER cases against the trained Qwen3-0.6B v4 baseline.
+Persist labels and aggregate metrics only; no raw generations, training, promotion or activation.
