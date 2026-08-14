@@ -1,1 +1,1 @@
-List recent private Kaggle kernels and identify the actual Thinking-2507 notebook slug. 2026-08-14T21:41+01:00.
+Inspect actual private Kaggle kernel and harvest aggregate/failure output if available: andrmaio/nexus-qwen3-4b-thinking-2507-probe-v1. 2026-08-14T21:43+01:00.
