@@ -10,8 +10,8 @@ import subprocess
 import sys
 import urllib.request
 
-SCRIPT_COMMIT = '94c235ebf2257cd920fa7f04e05e9e823d631485'
-SCRIPT_BLOB = '8ed990d8c1879409639412137d7a0c756c097353'
+SCRIPT_COMMIT = '21f40a2171278ad026d042a45759d87969c4b177'
+SCRIPT_BLOB = '74be780ec921417915aeb40c7468f0fd1660ac5c'
 SCRIPT_URL = (
     'https://raw.githubusercontent.com/andremaio/nexus-kaggle-bridge/'
     f'{SCRIPT_COMMIT}/kaggle/train_qwen3_4b_instruct2507_lora_v2.py'
@@ -70,7 +70,6 @@ def _materialize_training_script() -> Path:
 
 
 def main() -> None:
-    # Set before torch import so the allocated T4 is exposed deterministically.
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     os.environ['HF_HOME'] = '/kaggle/temp/hf-cache'
     os.environ['XDG_CACHE_HOME'] = '/kaggle/temp/cache'
