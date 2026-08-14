@@ -1,0 +1,50 @@
+name: Qwen3 4B v2 State Markers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/qwen4b-v2-state-markers.txt
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  markers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-instruct-2507-lora-v2
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Persist marker files for current kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+          kaggle kernels logs "${KERNEL_REF}" > full.log 2>&1 || true
+          mkdir -p reports/qwen4b-v2-state
+          rm -f reports/qwen4b-v2-state/*.marker
+          low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+          state=UNKNOWN
+          if printf '%s' "$low" | grep -Eq 'complete|completed'; then state=COMPLETE; fi
+          if printf '%s' "$low" | grep -Eq 'running'; then state=RUNNING; fi
+          if printf '%s' "$low" | grep -Eq 'queued'; then state=QUEUED; fi
+          if printf '%s' "$low" | grep -Eq 'error|failed|failure|cancel|permission.*denied'; then state=ERROR; fi
+          printf '%s\n' "$status" > "reports/qwen4b-v2-state/${state}.marker"
+          grep -Fq 'NEXUS_QWEN4B_V2_TRAIN_COMPLETE' full.log && printf 'yes\n' > reports/qwen4b-v2-state/TRAIN_COMPLETE.marker || true
+          grep -Eq 'adapter_model\.safetensors|nexus-qwen3-4b-instruct2507-adapter-v2' full.log && printf 'yes\n' > reports/qwen4b-v2-state/ADAPTER.marker || true
+          grep -Fq 'NEXUS_QWEN4B_V2_CUDA_DIAGNOSTIC' full.log && printf 'yes\n' > reports/qwen4b-v2-state/CUDA_OK.marker || true
+          grep -Fq 'NEXUS_QWEN4B_V2_SCRIPT_OK' full.log && printf 'yes\n' > reports/qwen4b-v2-state/SCRIPT_OK.marker || true
+          grep -Fq 'NEXUS_QWEN4B_V2_SOURCE_OK' full.log && printf 'yes\n' > reports/qwen4b-v2-state/SOURCES_OK.marker || true
+          git config user.name nexus-state-bot
+          git config user.email nexus-state-bot@users.noreply.github.com
+          git add -A reports/qwen4b-v2-state
+          git diff --cached --quiet || { git commit -m "diagnostic: update Qwen3 4B v2 state markers"; git push origin HEAD:main; }
