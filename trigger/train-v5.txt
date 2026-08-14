@@ -1,0 +1,3 @@
+NEXUS v5 remediation training launch
+Date: 2026-08-14
+Purpose: train Qwen3-0.6B LoRA with the existing 60-example v5 principle-level remediation curriculum, preserve v4 as evidence, run fixed/adversarial plus semantic safety gates, no automatic promotion.
