@@ -1,1 +1,1 @@
-Harvest sanitized Qwen3-4B aggregate probe report if the private Kaggle kernel is complete.
+Harvest sanitized Qwen3-4B aggregate probe report from the corrected Kaggle slug. Triggered 2026-08-14 21:01 Europe/Lisbon.
