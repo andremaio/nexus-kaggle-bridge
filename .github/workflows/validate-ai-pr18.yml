@@ -1,0 +1,75 @@
+name: Validate AI PR18
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/validate-ai-pr18.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Clone exact AI branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch agent/intelligence-engine-v1 https://github.com/andremaio/ai.git ai
+          cd ai
+          git rev-parse HEAD | tee ../ai-head.txt
+          git status --short
+
+      - name: Compile changed intelligence modules
+        shell: bash
+        working-directory: ai
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            app/bounded_deliberation.py \
+            app/cognitive_core.py \
+            app/model_quality_evidence_v1.py \
+            scripts/prepare_model_approval_v1.py \
+            scripts/benchmark_model_portfolio_v1.py \
+            scripts/validate_intelligence_engine_v1.py
+
+      - name: Install minimal test dependencies
+        shell: bash
+        working-directory: ai
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet pytest pydantic httpx
+
+      - name: Run focused reasoning and evidence tests
+        shell: bash
+        working-directory: ai
+        run: |
+          set -euo pipefail
+          pytest -q \
+            tests/test_bounded_deliberation_v3.py \
+            tests/test_model_quality_evidence_v1.py \
+            tests/test_cognitive_v3_suite.py \
+            | tee ../focused-tests.txt
+
+      - name: Run intelligence contract validator
+        shell: bash
+        working-directory: ai
+        run: |
+          set -euo pipefail
+          python scripts/validate_intelligence_engine_v1.py | tee ../intelligence-validator.txt
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-pr18-validation
+          path: |
+            ai-head.txt
+            focused-tests.txt
+            intelligence-validator.txt
+          if-no-files-found: ignore
+          retention-days: 7
