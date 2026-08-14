@@ -1,0 +1,3 @@
+Recover the already-trained Qwen3-4B-Instruct-2507 LoRA adapter from the failed post-training kernel.
+Do not relaunch GPU or retrain. Verify adapter files and hashes and upload recovery evidence.
+Triggered 2026-08-14T21:18+01:00.
