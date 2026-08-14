@@ -1,0 +1,112 @@
+name: Holdout v3 Contracts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - training/holdout_v3.jsonl
+      - training/seed_sft_v1.jsonl
+      - training/seed_sft_v2.jsonl
+      - training/seed_sft_v4.jsonl
+      - training/seed_sft_v5.jsonl
+      - training/benchmark_fixed_v1.jsonl
+      - training/benchmark_adversarial_v1.jsonl
+      - .github/workflows/holdout-v3-contracts.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate frozen unseen holdout
+        run: |
+          python - <<'PY'
+          import json, re, unicodedata
+          from pathlib import Path
+          from difflib import SequenceMatcher
+
+          ROOT=Path('training')
+          train_names=['seed_sft_v1.jsonl','seed_sft_v2.jsonl','seed_sft_v4.jsonl','seed_sft_v5.jsonl']
+          known_eval_names=['benchmark_fixed_v1.jsonl','benchmark_adversarial_v1.jsonl']
+
+          def rows(path):
+              return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines() if line.strip()]
+          def fold(text):
+              d=unicodedata.normalize('NFKD', str(text).casefold())
+              plain=''.join(ch for ch in d if not unicodedata.combining(ch))
+              return ' '.join(re.sub(r'[^\w]+',' ',plain,flags=re.UNICODE).split())
+          def tokens(text): return set(fold(text).split())
+          def metrics(a,b):
+              na,nb=fold(a),fold(b)
+              ta,tb=tokens(na),tokens(nb)
+              seq=SequenceMatcher(None,na,nb,autojunk=False).ratio() if na and nb else 0.0
+              jac=len(ta&tb)/len(ta|tb) if ta and tb else 0.0
+              con=len(ta&tb)/min(len(ta),len(tb)) if ta and tb else 0.0
+              return seq,jac,con
+          def last_user(row):
+              for message in reversed(row.get('messages',[])):
+                  if message.get('role')=='user': return str(message.get('content',''))
+              return ''
+
+          holdout=rows(ROOT/'holdout_v3.jsonl')
+          assert len(holdout)==60, len(holdout)
+          ids=[str(r.get('id','')) for r in holdout]
+          assert ids==[f'u{i:03d}' for i in range(1,61)]
+          prompts=[fold(r.get('prompt','')) for r in holdout]
+          assert all(prompts) and len(set(prompts))==60
+          critical=sum(bool(r.get('critical')) for r in holdout)
+          assert critical>=40, critical
+          categories={}
+          for row in holdout:
+              category=str(row.get('category','')).strip()
+              domain=str(row.get('domain','')).strip()
+              assert category and domain
+              categories[category]=categories.get(category,0)+1
+              required=row.get('required')
+              assert isinstance(required,list) and required
+              for group in required:
+                  assert isinstance(group,list) and group and all(isinstance(x,str) and x.strip() for x in group)
+              patterns=row.get('forbidden_regex')
+              assert isinstance(patterns,list)
+              for pattern in patterns:
+                  re.compile(pattern)
+          assert len(categories)>=10, categories
+
+          train=[]
+          for name in train_names: train.extend(rows(ROOT/name))
+          train_prompts=[(str(r.get('id','')),last_user(r)) for r in train]
+          known=[]
+          for name in known_eval_names: known.extend(rows(ROOT/name))
+          known_prompts=[(str(r.get('id','')),str(r.get('prompt',''))) for r in known]
+
+          nearest={'score':0.0,'holdout_id':None,'other_id':None,'method':None}
+          for h in holdout:
+              hp=str(h['prompt'])
+              hid=str(h['id'])
+              for oid,op in [*train_prompts,*known_prompts]:
+                  seq,jac,con=metrics(hp,op)
+                  method,score=max({'sequence':seq,'jaccard':jac,'containment':con}.items(),key=lambda x:x[1])
+                  if score>nearest['score']:
+                      nearest={'score':score,'holdout_id':hid,'other_id':oid,'method':method}
+                  assert fold(hp)!=fold(op), (hid,oid,'exact')
+                  assert score<0.90, (hid,oid,method,score)
+
+          print(json.dumps({
+              'schema':'nexus.training.holdout-v3.validation.v1',
+              'ok':True,
+              'cases':len(holdout),
+              'critical':critical,
+              'categories':dict(sorted(categories.items())),
+              'training_rows_checked':len(train),
+              'known_eval_rows_checked':len(known),
+              'nearest':nearest,
+              'training_overlap':False,
+              'automatic_training_authorized':False,
+              'automatic_promotion_authorized':False,
+          },ensure_ascii=False,sort_keys=True))
+          PY
