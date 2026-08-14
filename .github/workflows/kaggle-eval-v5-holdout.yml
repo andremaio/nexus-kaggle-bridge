@@ -1,0 +1,156 @@
+name: NEXUS v5 Holdout Evaluation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/eval-v5-holdout.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-v5-holdout-eval-current
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Kaggle access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle quota --format json > quota-before.json
+          cat quota-before.json
+
+      - name: Prepare independent holdout kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel
+          mkdir kernel
+          cp kaggle/nexus_eval_v5_holdout.py kernel/nexus_eval_v5_holdout.py
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id": "andrmaio/nexus-v5-holdout-eval-current",
+            "title": "NEXUS v5 Independent Holdout Evaluation",
+            "code_file": "nexus_eval_v5_holdout.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": true,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "machine_shape": "NvidiaTeslaT4",
+            "keywords": [],
+            "dataset_sources": [],
+            "kernel_sources": [
+              "andrmaio/nexus-qwen3-0-6b-lora-v4",
+              "andrmaio/nexus-qwen3-0-6b-lora-v5"
+            ],
+            "competition_sources": [],
+            "model_sources": []
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+
+      - name: Launch holdout evaluation on Kaggle T4
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --accelerator NvidiaTeslaT4 --timeout 5400 | tee kaggle-launch.txt
+
+      - name: Wait for holdout result
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 240); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            printf '%s\n' "$status" | tee kaggle-status.txt
+            low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$low" | grep -Eq 'complete|completed'; then final="complete"; break; fi
+            if printf '%s' "$low" | grep -Eq 'error|failed|failure|cancel|404|not found'; then final="failed"; break; fi
+            sleep 20
+          done
+          if [[ -z "$final" ]]; then final="timeout"; fi
+          echo "KAGGLE_FINAL_STATE=$final" | tee -a "$GITHUB_ENV"
+
+      - name: Collect evaluator logs
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kaggle-kernel.log 2>&1
+          tail -n 500 kaggle-kernel.log || true
+          kaggle quota --format json > quota-after.json
+          cat quota-after.json
+
+      - name: Download holdout evidence
+        if: env.KAGGLE_FINAL_STATE == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p kaggle-output
+          kaggle kernels output "${KERNEL_REF}" -p kaggle-output -o
+          find kaggle-output -maxdepth 2 -type f -printf '%p %s bytes\n' | sort | tee kaggle-output-files.txt
+          test -f kaggle-output/holdout-eval-current-v5.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('kaggle-output/holdout-eval-current-v5.json').read_text())
+          print('HOLDOUT_BASE=' + json.dumps(report.get('base'), sort_keys=True))
+          print('HOLDOUT_V4=' + json.dumps(report.get('v4'), sort_keys=True))
+          print('HOLDOUT_V5=' + json.dumps(report.get('v5'), sort_keys=True))
+          print('SCORE_GAIN=' + str(report.get('score_gain_vs_v4')))
+          print('SAFETY_GAIN=' + str(report.get('safety_gain_vs_v4')))
+          print('CRITICAL_REGRESSIONS=' + json.dumps(report.get('critical_regressions_vs_v4'), sort_keys=True))
+          print('ELIGIBLE=' + str(report.get('eligible_for_human_review')))
+          if report.get('automatic_promotion_authorized') is not False:
+              raise SystemExit('automatic promotion invariant violated')
+          if report.get('paid_service_used') is not False:
+              raise SystemExit('zero-cost invariant violated')
+          PY
+
+      - name: Upload holdout evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-v5-independent-holdout-evidence
+          path: |
+            quota-before.json
+            quota-after.json
+            kaggle-launch.txt
+            kaggle-status.txt
+            kaggle-kernel.log
+            kaggle-output-files.txt
+            kaggle-output/holdout-eval-current-v5.json
+            kaggle-output/holdout-details-base-current-v5.json
+            kaggle-output/holdout-details-v4-current-v5.json
+            kaggle-output/holdout-details-v5-current-v5.json
+            kaggle-output/holdout-base-current-v5.jsonl
+            kaggle-output/holdout-v4-current-v5.jsonl
+            kaggle-output/holdout-v5-current-v5.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Fail closed unless evaluation passed
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${KAGGLE_FINAL_STATE:-}" = "complete"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('kaggle-output/holdout-eval-current-v5.json').read_text())
+          if report.get('thresholds_passed') is not True:
+              raise SystemExit('independent holdout gate did not pass')
+          PY
