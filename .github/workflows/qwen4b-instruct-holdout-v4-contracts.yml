@@ -1,0 +1,43 @@
+name: Qwen3 4B Instruct Holdout v4 Contracts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - kaggle/eval_qwen3_4b_instruct2507_lora_holdout_v4.py
+      - .github/workflows/kaggle-eval-qwen3-4b-instruct2507-holdout-v4.yml
+      - .github/workflows/qwen4b-instruct-holdout-v4-contracts.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and verify evaluator contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile kaggle/eval_qwen3_4b_instruct2507_lora_holdout_v4.py
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('kaggle/eval_qwen3_4b_instruct2507_lora_holdout_v4.py').read_text()
+          checks={
+            'model': "MODEL_ID = 'Qwen/Qwen3-4B-Instruct-2507'" in p,
+            'revision': "MODEL_REV = 'cdbee75f17c01a7cc42f958dc650907174af0554'" in p,
+            'holdout_blob': "HOLDOUT_BLOB = '484ebf104d4bd28b8b484030c9e6b31eefa8d853'" in p,
+            'exact_ids': "expected = [f'j{i:03d}' for i in range(1, 21)]" in p,
+            'fresh_gate': "fresh_holdout_gate_passed" in p,
+            'perfect_gate': "perfect_fresh_holdout_gate_passed" in p,
+            'no_response_persistence': "'responses_persisted':False" in p,
+            'no_auto_promotion': "'automatic_promotion_authorized':False" in p,
+            'no_auto_activation': "'automatic_activation_authorized':False" in p,
+          }
+          failed=[k for k,v in checks.items() if not v]
+          print({'passed':len(checks)-len(failed),'total':len(checks),'failed':failed})
+          if failed: raise SystemExit(1)
+          PY
