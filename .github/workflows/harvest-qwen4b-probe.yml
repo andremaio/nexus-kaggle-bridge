@@ -1,0 +1,76 @@
+name: Harvest Qwen3 4B Probe Report
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/harvest-qwen4b-probe.txt
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-probe-v1
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check and harvest sanitized report
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+          printf '%s\n' "$status" | tee harvest-status.txt
+          low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+          if ! printf '%s' "$low" | grep -Eq 'complete|completed'; then
+            echo "Kernel is not complete; no report committed."
+            exit 0
+          fi
+          rm -rf harvest-output
+          mkdir harvest-output
+          kaggle kernels output "${KERNEL_REF}" -p harvest-output -o
+          test -f harvest-output/qwen3-4b-probe-v1.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          src=Path('harvest-output/qwen3-4b-probe-v1.json')
+          report=json.loads(src.read_text())
+          if report.get('schema') != 'nexus.training.qwen3-4b-probe.v1':
+              raise SystemExit('unexpected probe schema')
+          for key in ('automatic_training_authorized','automatic_promotion_authorized','automatic_activation_authorized'):
+              if report.get(key) is not False:
+                  raise SystemExit(f'{key} invariant violated')
+          # Public bridge stores aggregate evidence only. Prediction files stay in Kaggle/GitHub artifact.
+          allowed={
+              'schema','model_id','resolved_revision','gpu','data_commit','evidence_sha256',
+              'legacy','semantic_safety','dev_v2','v4_dev_v2','fresh_v3','v4_fresh_v3',
+              'fresh_v3_gain_vs_v4','fresh_v3_safety_gain_vs_v4','dev_v2_comparison',
+              'fresh_v3_comparison','capacity_signal_for_isolated_training_experiment',
+              'runtime_qualified','human_review_required','automatic_training_authorized',
+              'automatic_promotion_authorized','automatic_activation_authorized','paid_service_used',
+          }
+          public={key: report[key] for key in sorted(allowed) if key in report}
+          Path('reports').mkdir(exist_ok=True)
+          Path('reports/qwen3-4b-probe-v1.json').write_text(
+              json.dumps(public,ensure_ascii=False,sort_keys=True,indent=2)+'\n',encoding='utf-8'
+          )
+          PY
+          git config user.name "nexus-evidence-bot"
+          git config user.email "nexus-evidence-bot@users.noreply.github.com"
+          git add reports/qwen3-4b-probe-v1.json
+          if git diff --cached --quiet; then
+            echo "No report change."
+            exit 0
+          fi
+          git commit -m "evidence: record sanitized Qwen3 4B probe report"
+          git push origin HEAD:main
