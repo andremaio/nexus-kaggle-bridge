@@ -21,17 +21,49 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Require clean isolation and training contracts
+      - name: Require persisted isolation receipt and training contracts
         shell: bash
         run: |
           set -euo pipefail
           test -n "${KAGGLE_API_TOKEN:-}"
           python -m pip install --quiet "kaggle==2.2.4"
-          python -m py_compile kaggle/train_qwen3_4b_instruct2507_lora_v2.py kaggle/train_qwen3_4b_instruct2507_v2_bootstrap.py scripts/check_qwen4b_training_isolation.py scripts/check_qwen4b_training_isolation_v5.py
-          python scripts/check_qwen4b_training_isolation_v5.py | tee qwen4b-v2-isolation.json
-          grep -F '"training_allowed": true' qwen4b-v2-isolation.json
-          grep -F '"holdout_v5.jsonl"' qwen4b-v2-isolation.json
+          python -m py_compile kaggle/train_qwen3_4b_instruct2507_lora_v2.py kaggle/train_qwen3_4b_instruct2507_v2_bootstrap.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('reports/qwen4b-training-isolation-v5-receipt.json')
+          r=json.loads(p.read_text())
+          required={
+              'schema':'nexus.training-isolation.receipt.qwen3-4b.v1',
+              'source_workflow_run_id':31843219046,
+              'source_workflow_head_sha':'3ef7e05d29d0bb3add8a5826fcaf251221ac9cf1',
+              'source_artifact_id':9235004460,
+              'source_artifact_zip_sha256':'69cbaa219e20504f79a1151eb5e4cda2695719df8b2af5a98e4324829b91a3a6',
+              'data_commit':'abfc1851b447b5d227fd7e80a69a8c33227f725f',
+              'holdout_v5_commit':'f6b583b9c0391a9c939b66fa52b777ec8d7f2f3c',
+              'train_examples':592,
+              'evaluation_cases':228,
+              'decision_balance_examples':64,
+              'violation_count':0,
+              'training_allowed':True,
+              'automatic_training_authorized':False,
+              'automatic_promotion_authorized':False,
+              'automatic_activation_authorized':False,
+          }
+          for key,value in required.items():
+              if r.get(key)!=value:
+                  raise SystemExit(f'isolation receipt mismatch: {key}')
+          sets=r.get('evaluation_sets') or {}
+          expected={'benchmark_adversarial_v1.jsonl':20,'benchmark_fixed_v1.jsonl':20,'decision_holdout_v1.jsonl':40,'holdout_v2.jsonl':48,'holdout_v3.jsonl':48,'holdout_v4.jsonl':20,'holdout_v5.jsonl':32}
+          if set(sets)!=set(expected): raise SystemExit('isolation evaluation set mismatch')
+          for name,count in expected.items():
+              item=sets.get(name) or {}
+              if item.get('cases')!=count or item.get('near_matches')!=0:
+                  raise SystemExit(f'isolation set failed: {name}')
+          print('ISOLATION_RECEIPT_OK')
+          PY
           grep -F "learning_rate=1e-5" kaggle/train_qwen3_4b_instruct2507_lora_v2.py
+          grep -F "git_blob_sha1" kaggle/train_qwen3_4b_instruct2507_lora_v2.py
           grep -F "evaluation_performed_in_training_kernel':False" kaggle/train_qwen3_4b_instruct2507_lora_v2.py
           grep -F "baseline_loaded_after_training':False" kaggle/train_qwen3_4b_instruct2507_lora_v2.py
           grep -F "CUDA_VISIBLE_DEVICES'] = '0'" kaggle/train_qwen3_4b_instruct2507_v2_bootstrap.py
@@ -124,7 +156,7 @@ jobs:
         with:
           name: nexus-qwen3-4b-instruct2507-lora-v2-evidence
           path: |
-            qwen4b-v2-isolation.json
+            reports/qwen4b-training-isolation-v5-receipt.json
             quota-before.json
             quota-after.json
             launch.txt
