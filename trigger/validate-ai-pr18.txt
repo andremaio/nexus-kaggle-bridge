@@ -1,0 +1,1 @@
+Validate andremaio/ai branch agent/intelligence-engine-v1 after the final-critic and evidence-gate changes. Compile modules, run focused pytest and intelligence contract validator. No deployment or promotion.
