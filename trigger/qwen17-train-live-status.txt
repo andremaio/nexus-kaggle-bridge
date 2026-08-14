@@ -1,1 +1,2 @@
 Read Qwen3-1.7B LoRA training status and logs without launching compute.
+Check 2 after gated training launch.
