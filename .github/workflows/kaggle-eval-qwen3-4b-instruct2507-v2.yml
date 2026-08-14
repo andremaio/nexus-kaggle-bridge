@@ -1,0 +1,133 @@
+name: NEXUS Qwen3 4B Instruct 2507 LoRA v2 Eval
+
+on:
+  workflow_run:
+    workflows: ["NEXUS Qwen3 4B Instruct 2507 LoRA v2"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-instruct-2507-lora-v2-eval
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify evaluation contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          python -m py_compile kaggle/eval_qwen3_4b_instruct2507_lora_v2.py
+          grep -F "V5_BLOB = 'f8c144f2c814c71837999dc4ec80b84c057c6ac4'" kaggle/eval_qwen3_4b_instruct2507_lora_v2.py
+          grep -F "DECISION_BLOB = 'f852a2c9334f7b37f3a2ad805f605031aedeb26d'" kaggle/eval_qwen3_4b_instruct2507_lora_v2.py
+          grep -F "CUDA_FREE_AFTER_ADAPTED" kaggle/eval_qwen3_4b_instruct2507_lora_v2.py
+          kaggle quota --format json | tee quota-before.json
+      - name: Prepare evaluation kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel && mkdir kernel
+          cp kaggle/eval_qwen3_4b_instruct2507_lora_v2.py kernel/
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id":"andrmaio/nexus-qwen3-4b-instruct-2507-lora-v2-eval",
+            "title":"NEXUS Qwen3 4B Instruct 2507 LoRA v2 Eval",
+            "code_file":"eval_qwen3_4b_instruct2507_lora_v2.py",
+            "language":"python",
+            "kernel_type":"script",
+            "is_private":true,
+            "enable_gpu":true,
+            "enable_tpu":false,
+            "enable_internet":true,
+            "machine_shape":"NvidiaTeslaT4",
+            "keywords":[],
+            "dataset_sources":[],
+            "kernel_sources":["andrmaio/nexus-qwen3-4b-instruct-2507-lora-v2"],
+            "competition_sources":[],
+            "model_sources":[]
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+      - name: Launch blind evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --accelerator NvidiaTeslaT4 --timeout 7200 | tee launch.txt
+      - name: Wait for evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 300); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            echo "$status" | tee status.txt
+            low="$(echo "$status" | tr '[:upper:]' '[:lower:]')"
+            if echo "$low" | grep -Eq 'complete|completed'; then final=complete; break; fi
+            if echo "$low" | grep -Eq 'kernelworkerstatus\.error|error|failed|failure|cancel|404|not found|permission.*denied'; then final=failed; break; fi
+            sleep 20
+          done
+          [[ -n "$final" ]] || final=timeout
+          echo "KAGGLE_FINAL_STATE=$final" >> "$GITHUB_ENV"
+      - name: Collect evaluation evidence
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kernel.log 2>&1
+          tail -n 1500 kernel.log || true
+          kaggle quota --format json | tee quota-after.json
+          if [[ "${KAGGLE_FINAL_STATE:-}" = complete ]]; then
+            rm -rf output && mkdir output
+            kaggle kernels output "${KERNEL_REF}" -p output -o
+            test -f output/qwen3-4b-instruct2507-lora-v2-eval.json || exit 1
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('output/qwen3-4b-instruct2507-lora-v2-eval.json').read_text())
+          if r.get('schema')!='nexus.eval.qwen3-4b-instruct2507-lora.v2': raise SystemExit('schema mismatch')
+          for key in ('responses_persisted','prompts_persisted','automatic_promotion_authorized','automatic_activation_authorized','paid_service_used'):
+              if r.get(key) is not False: raise SystemExit(f'invariant failed: {key}')
+          print('ADAPTED_V5=' + json.dumps(r.get('adapted_v5'),sort_keys=True))
+          print('BASE_V5=' + json.dumps(r.get('base_v5'),sort_keys=True))
+          print('V5_GAIN=' + str(r.get('v5_gain')))
+          print('ADAPTED_DECISION=' + json.dumps(r.get('adapted_decision'),sort_keys=True))
+          print('BASE_DECISION=' + json.dumps(r.get('base_decision'),sort_keys=True))
+          print('DECISION_GAIN=' + str(r.get('decision_gain')))
+          print('V5_CRITICAL_REGRESSIONS=' + json.dumps((r.get('v5_comparison') or {}).get('critical_regressions'),sort_keys=True))
+          print('DECISION_CRITICAL_REGRESSIONS=' + json.dumps((r.get('decision_comparison') or {}).get('critical_regressions'),sort_keys=True))
+          print('GENERAL_GATE=' + str(r.get('general_gate_passed')))
+          print('DECISION_GATE=' + str(r.get('decision_gate_passed')))
+          print('HUMAN_REVIEW_CANDIDATE=' + str(r.get('candidate_for_human_review')))
+          print('PERFECT_GATE=' + str(r.get('perfect_blind_gate_passed')))
+          PY
+          fi
+      - name: Upload evaluation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-qwen3-4b-instruct2507-lora-v2-eval
+          path: |
+            quota-before.json
+            quota-after.json
+            launch.txt
+            status.txt
+            kernel.log
+            output/qwen3-4b-instruct2507-lora-v2-eval.json
+            output/qwen3-4b-instruct2507-lora-v2-eval-failure.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Fail closed unless complete
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${KAGGLE_FINAL_STATE:-}" = complete
