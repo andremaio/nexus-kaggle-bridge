@@ -1,0 +1,160 @@
+name: NEXUS Qwen3 4B Fresh-Holdout Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/probe-qwen3-4b.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-probe-v1
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Kaggle access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle quota --format json > quota-before.json
+          cat quota-before.json
+
+      - name: Prepare private Qwen3 4B T4 probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel
+          mkdir kernel
+          cp kaggle/probe_qwen3_4b_bootstrap.py kernel/probe_qwen3_4b_bootstrap.py
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id": "andrmaio/nexus-qwen3-4b-probe-v1",
+            "title": "NEXUS Qwen3 4B Fresh Holdout Probe v1",
+            "code_file": "probe_qwen3_4b_bootstrap.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": true,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "machine_shape": "NvidiaTeslaT4",
+            "keywords": [],
+            "dataset_sources": [],
+            "kernel_sources": ["andrmaio/nexus-qwen3-0-6b-lora-v4"],
+            "competition_sources": [],
+            "model_sources": []
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+
+      - name: Launch Qwen3 4B probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --accelerator NvidiaTeslaT4 --timeout 7200 | tee kaggle-launch.txt
+
+      - name: Wait for probe result
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 300); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            printf '%s\n' "$status" | tee kaggle-status.txt
+            low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$low" | grep -Eq 'complete|completed'; then final="complete"; break; fi
+            if printf '%s' "$low" | grep -Eq 'error|failed|failure|cancel|404|not found'; then final="failed"; break; fi
+            sleep 20
+          done
+          if [[ -z "$final" ]]; then final="timeout"; fi
+          echo "KAGGLE_FINAL_STATE=$final" | tee -a "$GITHUB_ENV"
+
+      - name: Collect probe logs
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kaggle-kernel.log 2>&1
+          tail -n 1000 kaggle-kernel.log || true
+          kaggle quota --format json > quota-after.json
+          cat quota-after.json
+
+      - name: Download and verify probe evidence
+        if: env.KAGGLE_FINAL_STATE == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p kaggle-output
+          kaggle kernels output "${KERNEL_REF}" -p kaggle-output -o
+          find kaggle-output -maxdepth 2 -type f -printf '%p %s bytes\n' | sort | tee kaggle-output-files.txt
+          test -f kaggle-output/qwen3-4b-probe-v1.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('kaggle-output/qwen3-4b-probe-v1.json').read_text())
+          print('MODEL=' + str(report.get('model_id')))
+          print('REVISION=' + str(report.get('resolved_revision')))
+          print('LEGACY=' + json.dumps(report.get('legacy'), sort_keys=True))
+          print('SEMANTIC=' + json.dumps(report.get('semantic_safety'), sort_keys=True))
+          print('DEV_V2=' + json.dumps(report.get('dev_v2'), sort_keys=True))
+          print('V4_DEV_V2=' + json.dumps(report.get('v4_dev_v2'), sort_keys=True))
+          print('FRESH_V3=' + json.dumps(report.get('fresh_v3'), sort_keys=True))
+          print('V4_FRESH_V3=' + json.dumps(report.get('v4_fresh_v3'), sort_keys=True))
+          print('FRESH_GAIN=' + str(report.get('fresh_v3_gain_vs_v4')))
+          print('FRESH_SAFETY_GAIN=' + str(report.get('fresh_v3_safety_gain_vs_v4')))
+          print('FRESH_CRITICAL_REGRESSIONS=' + json.dumps((report.get('fresh_v3_comparison') or {}).get('critical_regressions'), sort_keys=True))
+          print('CAPACITY_SIGNAL=' + str(report.get('capacity_signal_for_isolated_training_experiment')))
+          print('RUNTIME_QUALIFIED=' + str(report.get('runtime_qualified')))
+          if report.get('automatic_training_authorized') is not False:
+              raise SystemExit('automatic training invariant violated')
+          if report.get('automatic_promotion_authorized') is not False:
+              raise SystemExit('automatic promotion invariant violated')
+          if report.get('automatic_activation_authorized') is not False:
+              raise SystemExit('automatic activation invariant violated')
+          if report.get('paid_service_used') is not False:
+              raise SystemExit('zero-cost invariant violated')
+          PY
+
+      - name: Upload Qwen3 4B probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-qwen3-4b-probe-evidence
+          path: |
+            quota-before.json
+            quota-after.json
+            kaggle-launch.txt
+            kaggle-status.txt
+            kaggle-kernel.log
+            kaggle-output-files.txt
+            kaggle-output/qwen3-4b-probe-v1.json
+            kaggle-output/qwen3-4b-dev-v2-details-v1.json
+            kaggle-output/qwen3-4b-fresh-v3-details-v1.json
+            kaggle-output/qwen3-0.6b-v4-dev-v2-details-for-4b.json
+            kaggle-output/qwen3-0.6b-v4-fresh-v3-details-for-4b.json
+            kaggle-output/qwen3-4b-legacy-predictions-v1.jsonl
+            kaggle-output/qwen3-4b-dev-v2-predictions-v1.jsonl
+            kaggle-output/qwen3-4b-fresh-v3-predictions-v1.jsonl
+            kaggle-output/qwen3-0.6b-v4-dev-v2-predictions-for-4b.jsonl
+            kaggle-output/qwen3-0.6b-v4-fresh-v3-predictions-for-4b.jsonl
+            kaggle-output/qwen3-4b-probe-failure-v1.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Fail closed unless complete
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${KAGGLE_FINAL_STATE:-}" = "complete"
