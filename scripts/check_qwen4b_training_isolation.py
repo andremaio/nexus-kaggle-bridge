@@ -4,13 +4,13 @@ from __future__ import annotations
 from difflib import SequenceMatcher
 import json
 import re
-import sys
 import unicodedata
 import urllib.request
 
 DATA_COMMIT = "a10104c50eb4320acda30592c424e75848698df1"
+V4_COMMIT = "4e9bc90266d6b5a3c055f48705e61fbbf343764a"
 RAW = f"https://raw.githubusercontent.com/andremaio/nexus-kaggle-bridge/{DATA_COMMIT}/training"
-API = f"https://api.github.com/repos/andremaio/nexus-kaggle-bridge/contents/training"
+API = "https://api.github.com/repos/andremaio/nexus-kaggle-bridge/contents/training"
 TRAIN_FILES = {
     "seed_sft_v1.jsonl": "b9baa9ca58c241c47ab41cb59eb4ece312991d37",
     "seed_sft_v2.jsonl": "7b84dd2cce420eabbe903fc26258f2c2db7774db",
@@ -18,20 +18,18 @@ TRAIN_FILES = {
     "seed_sft_v5.jsonl": "764f37ab8a4f1889ab49cc2966766156227ff004",
 }
 EVAL_FILES = {
-    "benchmark_fixed_v1.jsonl": "01992f104fb1945a31a99130006ad1b1579aa62f",
-    "benchmark_adversarial_v1.jsonl": "d3eab85cde1807b986d8b8e5246022b2079958cc",
-    "holdout_v2.jsonl": "e2c44c002ccc5ae8ffb0c40b7d4bbc7964c3c2f5",
-    "holdout_v3.jsonl": "46ba39ad8ed8398a9092535fcd1563b162aa69aa",
+    "benchmark_fixed_v1.jsonl": (DATA_COMMIT, "01992f104fb1945a31a99130006ad1b1579aa62f"),
+    "benchmark_adversarial_v1.jsonl": (DATA_COMMIT, "d3eab85cde1807b986d8b8e5246022b2079958cc"),
+    "holdout_v2.jsonl": (DATA_COMMIT, "e2c44c002ccc5ae8ffb0c40b7d4bbc7964c3c2f5"),
+    "holdout_v3.jsonl": (DATA_COMMIT, "46ba39ad8ed8398a9092535fcd1563b162aa69aa"),
+    "holdout_v4.jsonl": (V4_COMMIT, "484ebf104d4bd28b8b484030c9e6b31eefa8d853"),
 }
 SEQUENCE_LIMIT = 0.90
 JACCARD_LIMIT = 0.82
 
 
 def _get_json(url: str) -> object:
-    request = urllib.request.Request(
-        url,
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "nexus-qwen4b-isolation-gate"},
-    )
+    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "nexus-qwen4b-isolation-gate"})
     with urllib.request.urlopen(request, timeout=60) as response:
         return json.loads(response.read().decode("utf-8"))
 
@@ -81,9 +79,12 @@ def _train_prompt(row: dict) -> str:
 
 
 def main() -> int:
-    expected = {**TRAIN_FILES, **EVAL_FILES}
-    for name, blob in expected.items():
+    for name, blob in TRAIN_FILES.items():
         metadata = _get_json(f"{API}/{name}?ref={DATA_COMMIT}")
+        if not isinstance(metadata, dict) or metadata.get("sha") != blob:
+            raise RuntimeError(f"immutable blob mismatch for {name}")
+    for name, (ref, blob) in EVAL_FILES.items():
+        metadata = _get_json(f"{API}/{name}?ref={ref}")
         if not isinstance(metadata, dict) or metadata.get("sha") != blob:
             raise RuntimeError(f"immutable blob mismatch for {name}")
 
@@ -96,8 +97,9 @@ def main() -> int:
             train_rows.append((name, row_id, _train_prompt(row)))
 
     eval_rows: list[tuple[str, str, str]] = []
-    for name in EVAL_FILES:
-        for row in _jsonl(_get_bytes(f"{RAW}/{name}")):
+    for name, (ref, _) in EVAL_FILES.items():
+        raw = f"https://raw.githubusercontent.com/andremaio/nexus-kaggle-bridge/{ref}/training/{name}"
+        for row in _jsonl(_get_bytes(raw)):
             row_id = str(row.get("id", "")).strip()
             prompt = str(row.get("prompt", "")).strip()
             if not row_id or not prompt:
@@ -130,20 +132,12 @@ def main() -> int:
                 nearest["token_jaccard"] = round(jac, 6)
             if seq >= SEQUENCE_LIMIT or jac >= JACCARD_LIMIT:
                 per_eval_file[eval_name]["near_matches"] += 1
-                violations.append(
-                    {
-                        "train_file": train_name,
-                        "train_id": train_id,
-                        "eval_file": eval_name,
-                        "eval_id": eval_id,
-                        "sequence_ratio": round(seq, 6),
-                        "token_jaccard": round(jac, 6),
-                    }
-                )
+                violations.append({"train_file": train_name, "train_id": train_id, "eval_file": eval_name, "eval_id": eval_id, "sequence_ratio": round(seq, 6), "token_jaccard": round(jac, 6)})
 
     result = {
-        "schema": "nexus.training-isolation.qwen3-4b.v1",
+        "schema": "nexus.training-isolation.qwen3-4b.v2",
         "data_commit": DATA_COMMIT,
+        "holdout_v4_commit": V4_COMMIT,
         "train_examples": len(train_rows),
         "evaluation_cases": len(eval_rows),
         "evaluation_sets": per_eval_file,
@@ -154,6 +148,8 @@ def main() -> int:
         "violation_count": len(violations),
         "fresh_v3_used_for_training": False,
         "fresh_v3_used_for_hyperparameter_selection": False,
+        "fresh_v4_used_for_training": False,
+        "fresh_v4_used_for_hyperparameter_selection": False,
         "training_allowed": not violations,
         "automatic_training_authorized": False,
         "automatic_promotion_authorized": False,
@@ -167,5 +163,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:
-        print(json.dumps({"schema": "nexus.training-isolation.qwen3-4b.failure.v1", "error_type": type(exc).__name__, "error": str(exc), "training_allowed": False}, ensure_ascii=False, sort_keys=True))
+        print(json.dumps({"schema": "nexus.training-isolation.qwen3-4b.failure.v2", "error_type": type(exc).__name__, "error": str(exc), "training_allowed": False}, ensure_ascii=False, sort_keys=True))
         raise
