@@ -1,0 +1,1 @@
+Inspect the existing Qwen3-4B-Instruct-2507 LoRA v2 kernel. Do not relaunch GPU. Show only status, training/error diagnostics and quota.
