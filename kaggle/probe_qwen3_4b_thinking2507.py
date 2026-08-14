@@ -108,7 +108,8 @@ def generate_thinking(model, tokenizer, cases: list[dict]) -> tuple[dict[str, st
         text = prompt(tokenizer, str(case['prompt']))
         encoded = {key: value.to('cuda') for key, value in tokenizer(text, return_tensors='pt').items()}
         prompt_tokens = int(encoded['input_ids'].shape[1])
-        generator = torch.Generator(device='cuda').manual_seed(SEED + index)
+        torch.manual_seed(SEED + index)
+        torch.cuda.manual_seed_all(SEED + index)
         with torch.inference_mode():
             generated = model.generate(
                 **encoded,
@@ -119,7 +120,6 @@ def generate_thinking(model, tokenizer, cases: list[dict]) -> tuple[dict[str, st
                 min_p=0.0,
                 max_new_tokens=1536,
                 pad_token_id=tokenizer.eos_token_id,
-                generator=generator,
             )
         new_ids = generated[0, prompt_tokens:].tolist()
         answer, was_truncated = final_only(new_ids, tokenizer)
