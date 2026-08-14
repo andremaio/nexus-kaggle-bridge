@@ -1,0 +1,43 @@
+name: Qwen3 4B Probe Live Status
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/qwen4b-probe-live-status.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-probe-v1
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read current probe state and logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle kernels status "${KERNEL_REF}" | tee qwen4b-status.txt
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > qwen4b-live.log 2>&1
+          tail -n 900 qwen4b-live.log
+          kaggle quota --format json | tee qwen4b-quota.json
+          exit 0
+      - name: Upload diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwen4b-probe-live-status
+          path: |
+            qwen4b-status.txt
+            qwen4b-live.log
+            qwen4b-quota.json
+          retention-days: 1
