@@ -1,0 +1,1 @@
+Read current Qwen3-1.7B probe status and logs without launching compute.
