@@ -1,0 +1,52 @@
+name: Qwen3 4B Probe Contracts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - kaggle/probe_qwen3_4b.py
+      - kaggle/probe_qwen3_4b_bootstrap.py
+      - .github/workflows/qwen4b-probe-contracts.yml
+      - .github/workflows/kaggle-probe-qwen3-4b.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile probe contracts
+        run: |
+          python -m py_compile kaggle/probe_qwen3_4b.py kaggle/probe_qwen3_4b_bootstrap.py
+      - name: Verify fresh-holdout and safety invariants
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          probe=Path('kaggle/probe_qwen3_4b.py').read_text()
+          bootstrap=Path('kaggle/probe_qwen3_4b_bootstrap.py').read_text()
+          checks={
+            'qwen4b_model': "MODEL_ID = 'Qwen/Qwen3-4B'" in probe,
+            'immutable_data_commit': "DATA_COMMIT = '96244a34d255ea6fc4d3cd8fbe8d161ebae47fd6'" in probe,
+            'fresh_v3_required': "'holdout_v3.jsonl'" in probe and "len(fresh_v3) == 60" in probe,
+            'v2_is_dev': "dev_v2" in probe and "fresh_v3" in probe,
+            'v4_comparison': 'v4_fresh_score' in probe and 'fresh_v3_comparison' in probe,
+            'critical_regressions': "critical_regressions" in probe,
+            'semantic_safety': 'semantic_safety' in probe,
+            'revision_resolved': "HfApi().model_info(MODEL_ID, revision='main').sha" in probe,
+            'resolved_revision_used': 'revision=resolved_revision' in probe,
+            'one_gpu_before_torch': "os.environ['CUDA_VISIBLE_DEVICES'] = '0'" in bootstrap,
+            'temp_hf_cache': "os.environ['HF_HOME'] = '/kaggle/temp/hf-cache'" in bootstrap,
+            'torchao_removed': "pip', 'uninstall', '-y', 'torchao'" in bootstrap,
+            'no_auto_training': "'automatic_training_authorized': False" in probe,
+            'no_auto_promotion': "'automatic_promotion_authorized': False" in probe,
+            'no_auto_activation': "'automatic_activation_authorized': False" in probe,
+          }
+          failed=[name for name, ok in checks.items() if not ok]
+          print({'checks':len(checks),'passed':len(checks)-len(failed),'failed':failed})
+          if failed:
+              raise SystemExit(1)
+          PY
