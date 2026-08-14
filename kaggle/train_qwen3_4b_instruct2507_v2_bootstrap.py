@@ -1,12 +1,26 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import importlib.metadata
 import os
 from pathlib import Path
 import runpy
 import subprocess
 import sys
+import urllib.request
+
+SCRIPT_COMMIT = '94c235ebf2257cd920fa7f04e05e9e823d631485'
+SCRIPT_BLOB = '8ed990d8c1879409639412137d7a0c756c097353'
+SCRIPT_URL = (
+    'https://raw.githubusercontent.com/andremaio/nexus-kaggle-bridge/'
+    f'{SCRIPT_COMMIT}/kaggle/train_qwen3_4b_instruct2507_lora_v2.py'
+)
+
+
+def _git_blob_sha1(payload: bytes) -> str:
+    header = f'blob {len(payload)}\0'.encode('ascii')
+    return hashlib.sha1(header + payload).hexdigest()
 
 
 def _remove_torchao() -> None:
@@ -30,10 +44,33 @@ def _remove_torchao() -> None:
     raise RuntimeError(f'torchao still installed after cleanup: {after}')
 
 
+def _materialize_training_script() -> Path:
+    request = urllib.request.Request(
+        SCRIPT_URL,
+        headers={'User-Agent':'nexus-qwen4b-v2-bootstrap'},
+    )
+    with urllib.request.urlopen(request, timeout=90) as response:
+        payload = response.read()
+    if not payload:
+        raise RuntimeError('downloaded empty pinned v2 training script')
+    actual = _git_blob_sha1(payload)
+    if actual != SCRIPT_BLOB:
+        raise RuntimeError(
+            f'pinned training script blob mismatch: {actual} != {SCRIPT_BLOB}'
+        )
+    target = Path('/kaggle/working/train_qwen3_4b_instruct2507_lora_v2.py')
+    target.write_bytes(payload)
+    compile(payload.decode('utf-8'), str(target), 'exec')
+    print(
+        'NEXUS_QWEN4B_V2_SCRIPT_OK '
+        f'commit={SCRIPT_COMMIT} blob={SCRIPT_BLOB} bytes={len(payload)}',
+        flush=True,
+    )
+    return target
+
+
 def main() -> None:
-    # Must be set before torch is imported. Kaggle occasionally exposes the T4
-    # only after the accelerator allocation while inheriting an empty/default
-    # visibility value in the script environment.
+    # Set before torch import so the allocated T4 is exposed deterministically.
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     os.environ['HF_HOME'] = '/kaggle/temp/hf-cache'
     os.environ['XDG_CACHE_HOME'] = '/kaggle/temp/cache'
@@ -68,21 +105,7 @@ def main() -> None:
             f'available={available} count={count} visible={visible!r}'
         )
 
-    target = Path('/kaggle/working/train_qwen3_4b_instruct2507_lora_v2.py')
-    if not target.is_file():
-        # Kaggle normally places both uploaded kernel files in /kaggle/working,
-        # but keep a relative fallback for compatibility with script kernels.
-        candidate = Path.cwd() / 'train_qwen3_4b_instruct2507_lora_v2.py'
-        if candidate.is_file():
-            target = candidate
-        else:
-            raise RuntimeError('pinned v2 training script is missing from kernel')
-    source = target.read_text(encoding='utf-8')
-    compile(source, str(target), 'exec')
-    print(
-        f'NEXUS_QWEN4B_V2_BOOTSTRAP script={target} bytes={target.stat().st_size}',
-        flush=True,
-    )
+    target = _materialize_training_script()
     runpy.run_path(str(target), run_name='__main__')
 
 
