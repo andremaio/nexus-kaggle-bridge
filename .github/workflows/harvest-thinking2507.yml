@@ -1,0 +1,107 @@
+name: Harvest Qwen3 4B Thinking 2507
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/harvest-thinking2507.txt
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-thinking-2507-probe-v1
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Wait for existing private kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          final=""
+          for i in $(seq 1 480); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            printf '%s\n' "$status" | tee thinking-status.txt
+            low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$low" | grep -Eq 'complete|completed'; then final="complete"; break; fi
+            if printf '%s' "$low" | grep -Eq 'kernelworkerstatus\.error|error|failed|failure|cancel|404|not found'; then final="failed"; break; fi
+            sleep 20
+          done
+          if [[ -z "$final" ]]; then final="timeout"; fi
+          echo "KAGGLE_FINAL_STATE=$final" >> "$GITHUB_ENV"
+      - name: Collect logs and quota
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > thinking-kernel.log 2>&1
+          tail -n 1000 thinking-kernel.log || true
+          kaggle quota --format json > thinking-quota.json
+          cat thinking-quota.json
+      - name: Download and persist sanitized aggregate
+        if: env.KAGGLE_FINAL_STATE == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf thinking-output && mkdir thinking-output
+          kaggle kernels output "${KERNEL_REF}" -p thinking-output -o
+          test -f thinking-output/qwen3-4b-thinking2507-probe-v1.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          src=Path('thinking-output/qwen3-4b-thinking2507-probe-v1.json')
+          report=json.loads(src.read_text())
+          if report.get('schema') != 'nexus.training.qwen3-4b-thinking2507-probe.v1':
+              raise SystemExit('unexpected schema')
+          for key in ('thinking_content_decoded','thinking_content_persisted','raw_generation_persisted','automatic_training_authorized','automatic_promotion_authorized','automatic_activation_authorized','paid_service_used'):
+              if report.get(key) is not False:
+                  raise SystemExit(f'{key} invariant violated')
+          allowed={
+              'schema','model_id','resolved_revision','data_commit','seed','generation','fresh_v3',
+              'v4_fresh_v3','fresh_gain_vs_v4','semantic_safety','critical_regressions_vs_v4',
+              'improvements_vs_v4','thinking_truncated_count','thinking_truncation_rate',
+              'eligible_as_deep_reasoning_challenger','thinking_content_decoded',
+              'thinking_content_persisted','raw_generation_persisted','human_review_required',
+              'automatic_training_authorized','automatic_promotion_authorized',
+              'automatic_activation_authorized','paid_service_used'
+          }
+          public={key:report[key] for key in sorted(allowed) if key in report}
+          Path('reports').mkdir(exist_ok=True)
+          Path('reports/qwen3-4b-thinking2507-probe-v1.json').write_text(
+              json.dumps(public,ensure_ascii=False,sort_keys=True,indent=2)+'\n',encoding='utf-8'
+          )
+          PY
+          git config user.name "nexus-evidence-bot"
+          git config user.email "nexus-evidence-bot@users.noreply.github.com"
+          git add reports/qwen3-4b-thinking2507-probe-v1.json
+          if ! git diff --cached --quiet; then
+            git commit -m "evidence: record Qwen3 4B Thinking 2507 probe"
+            git push origin HEAD:main
+          fi
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-thinking2507-harvest
+          path: |
+            thinking-status.txt
+            thinking-kernel.log
+            thinking-quota.json
+            thinking-output/qwen3-4b-thinking2507-probe-v1.json
+            thinking-output/qwen3-4b-thinking2507-probe-failure-v1.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Fail closed unless complete
+        if: always()
+        shell: bash
+        run: test "${KAGGLE_FINAL_STATE:-}" = "complete"
