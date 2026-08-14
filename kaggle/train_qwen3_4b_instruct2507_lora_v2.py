@@ -61,18 +61,12 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def get_metadata(name: str) -> dict:
-    api = f'https://api.github.com/repos/andremaio/nexus-kaggle-bridge/contents/training/{name}?ref={DATA_COMMIT}'
-    req = urllib.request.Request(api, headers={'Accept':'application/vnd.github+json','User-Agent':'nexus-qwen4b-v2-train'})
-    with urllib.request.urlopen(req, timeout=60) as response:
-        payload = json.loads(response.read().decode('utf-8'))
-    if payload.get('sha') != EXPECTED_BLOBS[name]:
-        raise RuntimeError(f'immutable blob mismatch for {name}')
-    return payload
+def git_blob_sha1(payload: bytes) -> str:
+    header = f'blob {len(payload)}\0'.encode('ascii')
+    return hashlib.sha1(header + payload).hexdigest()
 
 
 def download(name: str) -> Path:
-    get_metadata(name)
     dest = OUT / name
     last = None
     for attempt in range(3):
@@ -81,12 +75,24 @@ def download(name: str) -> Path:
                 payload = response.read()
             if not payload:
                 raise RuntimeError('empty payload')
+            actual_blob = git_blob_sha1(payload)
+            expected_blob = EXPECTED_BLOBS[name]
+            if actual_blob != expected_blob:
+                raise RuntimeError(
+                    f'immutable Git blob mismatch for {name}: '
+                    f'{actual_blob} != {expected_blob}'
+                )
             dest.write_bytes(payload)
+            print(
+                f'NEXUS_QWEN4B_V2_SOURCE_OK name={name} '
+                f'git_blob={actual_blob} bytes={len(payload)}',
+                flush=True,
+            )
             return dest
         except Exception as exc:
             last = exc
             time.sleep(2 * (attempt + 1))
-    raise RuntimeError(f'failed to download {name}: {type(last).__name__}')
+    raise RuntimeError(f'failed to download {name}: {type(last).__name__}: {last}')
 
 
 def jsonl(path: Path) -> list[dict]:
@@ -162,6 +168,7 @@ def main() -> None:
     by_file = {name: jsonl(path) for name, path in paths.items()}
     dataset_manifest = validate_rows(by_file)
     dataset_manifest['source_sha256'] = {name: sha256(path) for name, path in paths.items()}
+    dataset_manifest['source_git_blobs'] = dict(EXPECTED_BLOBS)
     dump(OUT / 'qwen3-4b-instruct2507-dataset-manifest-v2.json', dataset_manifest)
 
     install_stack()
