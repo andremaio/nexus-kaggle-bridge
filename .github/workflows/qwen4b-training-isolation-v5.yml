@@ -1,0 +1,32 @@
+name: Qwen3 4B Training Isolation v5
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/check_qwen4b_training_isolation_v5.py
+      - trigger/qwen4b-training-isolation-v5.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate corrected v5 isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/check_qwen4b_training_isolation.py scripts/check_qwen4b_training_isolation_v5.py
+          python scripts/check_qwen4b_training_isolation_v5.py | tee qwen4b-training-isolation-v5.json
+          grep -F '"training_allowed": true' qwen4b-training-isolation-v5.json
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwen4b-training-isolation-v5
+          path: qwen4b-training-isolation-v5.json
+          retention-days: 14
