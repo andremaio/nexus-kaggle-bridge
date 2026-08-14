@@ -1,0 +1,6 @@
+Launch isolated Qwen3-4B-Instruct-2507 LoRA alignment experiment.
+Train only on the 528 curated seed SFT examples.
+Keep holdout_v3, decision_holdout_v1 and semantic safety probes evaluation-only.
+Require contamination checks, no critical regressions, semantic safety, and human review before any promotion.
+No automatic promotion or runtime activation.
+Triggered 2026-08-14T21:00+01:00.
