@@ -1,0 +1,1 @@
+Clone andremaio/ai branch agent/intelligence-engine-v1 and persist a PASS/FAIL marker after compile, focused pytest and intelligence validator. No deployment or promotion.
