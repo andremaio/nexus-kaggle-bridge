@@ -1,0 +1,4 @@
+Launch Qwen3-4B fresh-holdout capacity probe.
+Resolve and record immutable model revision at runtime.
+Evaluate legacy + v2 dev + frozen v3 fresh holdout and compare against Qwen3-0.6B v4.
+No automatic training, promotion or runtime activation.
