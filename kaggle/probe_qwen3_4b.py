@@ -17,7 +17,7 @@ OUT = Path('/kaggle/working')
 MODEL_ID = 'Qwen/Qwen3-4B'
 V4_MODEL_ID = 'Qwen/Qwen3-0.6B'
 V4_MODEL_REV = 'c1899de289a04d12100db370d81485cdf75e47ca'
-DATA_COMMIT = '96244a34d255ea6fc4d3cd8fbe8d161ebae47fd6'
+DATA_COMMIT = 'a10104c50eb4320acda30592c424e75848698df1'
 RAW = f'https://raw.githubusercontent.com/andremaio/nexus-kaggle-bridge/{DATA_COMMIT}/training'
 FILES = [
     'benchmark_fixed_v1.jsonl',
