@@ -1,0 +1,4 @@
+Launch gated Qwen3-1.7B LoRA experiment.
+Train full 528-example curriculum on pinned revision 70d244cc86ccca08cf5af4e1e306ecf908b1ad5e.
+Evaluate base/candidate/v4 on fixed, adversarial, semantic safety and unseen holdout v2.
+No automatic promotion or runtime activation.
