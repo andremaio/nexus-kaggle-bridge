@@ -1,5 +1,6 @@
-Launch suite-validated Qwen3-4B fresh-holdout capacity probe.
+Launch dependency-validated Qwen3-4B fresh-holdout capacity probe.
 Inputs pinned to immutable commit a10104c50eb4320acda30592c424e75848698df1 and exact case IDs.
+Dependency resolver preflight mirrors the proven Qwen3-1.7B Kaggle stack.
 Evaluate fixed/adversarial + 48-case v2 dev + 48-case frozen v3 fresh holdout against Qwen3-0.6B v4.
 No automatic training, promotion or runtime activation.
-Triggered after green probe contracts on 2026-08-14.
+Triggered after green contracts on 2026-08-14.
