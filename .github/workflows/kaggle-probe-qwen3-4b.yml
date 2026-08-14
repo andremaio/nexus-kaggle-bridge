@@ -16,12 +16,12 @@ jobs:
     timeout-minutes: 120
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KERNEL_REF: andrmaio/nexus-qwen3-4b-probe-v1
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-fresh-holdout-probe-v1
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify Kaggle access
+      - name: Verify Kaggle access and immutable evidence inputs
         shell: bash
         run: |
           set -euo pipefail
@@ -29,6 +29,26 @@ jobs:
           python -m pip install --quiet "kaggle==2.2.4"
           kaggle quota --format json > quota-before.json
           cat quota-before.json
+          python - <<'PY'
+          import hashlib
+          import urllib.request
+          commit='a10104c50eb4320acda30592c424e75848698df1'
+          expected={
+              'benchmark_fixed_v1.jsonl':'01992f104fb1945a31a99130006ad1b1579aa62f',
+              'benchmark_adversarial_v1.jsonl':'d3eab85cde1807b986d8b8e5246022b2079958cc',
+              'holdout_v2.jsonl':'e2c44c002ccc5ae8ffb0c40b7d4bbc7964c3c2f5',
+              'holdout_v3.jsonl':'46ba39ad8ed8398a9092535fcd1563b162aa69aa',
+          }
+          for name, blob in expected.items():
+              api=f'https://api.github.com/repos/andremaio/nexus-kaggle-bridge/contents/training/{name}?ref={commit}'
+              req=urllib.request.Request(api, headers={'Accept':'application/vnd.github+json','User-Agent':'nexus-qwen4b-preflight'})
+              import json
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  payload=json.loads(r.read().decode())
+              if payload.get('sha') != blob:
+                  raise SystemExit(f'{name}: blob mismatch {payload.get("sha")} != {blob}')
+              print(f'PRECHECK_OK {name} blob={blob}')
+          PY
 
       - name: Prepare private Qwen3 4B T4 probe
         shell: bash
@@ -39,7 +59,7 @@ jobs:
           cp kaggle/probe_qwen3_4b_bootstrap.py kernel/probe_qwen3_4b_bootstrap.py
           cat > kernel/kernel-metadata.json <<'JSON'
           {
-            "id": "andrmaio/nexus-qwen3-4b-probe-v1",
+            "id": "andrmaio/nexus-qwen3-4b-fresh-holdout-probe-v1",
             "title": "NEXUS Qwen3 4B Fresh Holdout Probe v1",
             "code_file": "probe_qwen3_4b_bootstrap.py",
             "language": "python",
@@ -74,7 +94,7 @@ jobs:
             printf '%s\n' "$status" | tee kaggle-status.txt
             low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
             if printf '%s' "$low" | grep -Eq 'complete|completed'; then final="complete"; break; fi
-            if printf '%s' "$low" | grep -Eq 'error|failed|failure|cancel|404|not found'; then final="failed"; break; fi
+            if printf '%s' "$low" | grep -Eq 'kernelworkerstatus\.error|error|failed|failure|cancel|404|not found'; then final="failed"; break; fi
             sleep 20
           done
           if [[ -z "$final" ]]; then final="timeout"; fi
