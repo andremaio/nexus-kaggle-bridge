@@ -1,0 +1,63 @@
+name: Harvest Qwen3 4B Decision Report
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/harvest-qwen4b-decision-probe.txt
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-decision-probe-v1
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Harvest aggregate decision report if complete
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+          echo "$status"
+          low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+          if ! printf '%s' "$low" | grep -Eq 'complete|completed'; then
+            echo "not complete"
+            exit 0
+          fi
+          rm -rf harvest-output && mkdir harvest-output
+          kaggle kernels output "${KERNEL_REF}" -p harvest-output -o
+          test -f harvest-output/qwen3-4b-decision-probe-v2.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          src=Path('harvest-output/qwen3-4b-decision-probe-v2.json')
+          report=json.loads(src.read_text())
+          if report.get('schema') != 'nexus.training.decision-probe.qwen3-4b.v2':
+              raise SystemExit('unexpected decision report schema')
+          for key in ('automatic_training_authorized','automatic_promotion_authorized','automatic_activation_authorized'):
+              if report.get(key) is not False:
+                  raise SystemExit(key+' invariant violated')
+          if report.get('raw_generation_persisted') is not False:
+              raise SystemExit('raw generation persistence invariant violated')
+          Path('reports').mkdir(exist_ok=True)
+          Path('reports/qwen3-4b-decision-probe-v2.json').write_text(
+              json.dumps(report,ensure_ascii=False,sort_keys=True,indent=2)+'\n',encoding='utf-8'
+          )
+          PY
+          git config user.name "nexus-evidence-bot"
+          git config user.email "nexus-evidence-bot@users.noreply.github.com"
+          git add reports/qwen3-4b-decision-probe-v2.json
+          git diff --cached --quiet && exit 0
+          git commit -m "evidence: record sanitized Qwen3 4B decision probe"
+          git push origin HEAD:main
