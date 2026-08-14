@@ -1,0 +1,1 @@
+andrmaio/nexus-qwen3-4b-instruct-2507-lora-v2-eval has status "KernelWorkerStatus.ERROR"
