@@ -1,0 +1,50 @@
+name: Qwen3 4B v2 Minimal Status
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/qwen4b-v2-status-min.txt
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-instruct-2507-lora-v2
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Persist four-line status
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          state="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+          kaggle kernels logs "${KERNEL_REF}" > full.log 2>&1 || true
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          state='''${state}'''.strip().replace('\n',' ')
+          log=Path('full.log').read_text(errors='replace')
+          train_complete='YES' if 'NEXUS_QWEN4B_V2_TRAIN_COMPLETE' in log else 'NO'
+          adapter='YES' if ('adapter_model.safetensors' in log or 'nexus-qwen3-4b-instruct2507-adapter-v2' in log) else 'NO'
+          errors=[line.strip() for line in log.splitlines() if re.search(r'(RuntimeError|ValueError|Traceback|CUDA out of memory|Exception)',line,re.I)]
+          last_error=(errors[-1] if errors else 'NONE')[-700:]
+          text=f'STATE={state}\nTRAIN_COMPLETE={train_complete}\nADAPTER={adapter}\nLAST_ERROR={last_error}\n'
+          Path('reports').mkdir(exist_ok=True)
+          Path('reports/qwen4b-v2-status.txt').write_text(text)
+          print(text)
+          PY
+          git config user.name nexus-status-bot
+          git config user.email nexus-status-bot@users.noreply.github.com
+          git add reports/qwen4b-v2-status.txt
+          git diff --cached --quiet || { git commit -m "diagnostic: record minimal Qwen3 4B v2 status"; git push origin HEAD:main; }
