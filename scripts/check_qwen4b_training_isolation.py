@@ -10,6 +10,7 @@ import urllib.request
 DATA_COMMIT = "abfc1851b447b5d227fd7e80a69a8c33227f725f"
 LEGACY_EVAL_COMMIT = "a10104c50eb4320acda30592c424e75848698df1"
 V4_COMMIT = "4e9bc90266d6b5a3c055f48705e61fbbf343764a"
+V5_COMMIT = "4680d821a3a5126f9627a8d1b11007d81a888a30"
 RAW = f"https://raw.githubusercontent.com/andremaio/nexus-kaggle-bridge/{DATA_COMMIT}/training"
 API = "https://api.github.com/repos/andremaio/nexus-kaggle-bridge/contents/training"
 TRAIN_FILES = {
@@ -26,6 +27,7 @@ EVAL_FILES = {
     "holdout_v3.jsonl": (LEGACY_EVAL_COMMIT, "46ba39ad8ed8398a9092535fcd1563b162aa69aa"),
     "decision_holdout_v1.jsonl": (DATA_COMMIT, "f852a2c9334f7b37f3a2ad805f605031aedeb26d"),
     "holdout_v4.jsonl": (V4_COMMIT, "484ebf104d4bd28b8b484030c9e6b31eefa8d853"),
+    "holdout_v5.jsonl": (V5_COMMIT, "25514e38a36f5815fdc133e98608d8604ef888f2"),
 }
 SEQUENCE_LIMIT = 0.90
 JACCARD_LIMIT = 0.82
@@ -138,10 +140,11 @@ def main() -> int:
                 violations.append({"train_file": train_name, "train_id": train_id, "eval_file": eval_name, "eval_id": eval_id, "sequence_ratio": round(seq, 6), "token_jaccard": round(jac, 6)})
 
     result = {
-        "schema": "nexus.training-isolation.qwen3-4b.v3",
+        "schema": "nexus.training-isolation.qwen3-4b.v4",
         "data_commit": DATA_COMMIT,
         "legacy_eval_commit": LEGACY_EVAL_COMMIT,
         "holdout_v4_commit": V4_COMMIT,
+        "holdout_v5_commit": V5_COMMIT,
         "train_examples": len(train_rows),
         "decision_balance_examples": 64,
         "evaluation_cases": len(eval_rows),
@@ -155,6 +158,8 @@ def main() -> int:
         "decision_holdout_used_for_training": False,
         "fresh_v4_used_for_training": False,
         "fresh_v4_used_for_hyperparameter_selection": False,
+        "fresh_v5_used_for_training": False,
+        "fresh_v5_used_for_hyperparameter_selection": False,
         "training_allowed": not violations,
         "automatic_training_authorized": False,
         "automatic_promotion_authorized": False,
@@ -168,5 +173,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:
-        print(json.dumps({"schema": "nexus.training-isolation.qwen3-4b.failure.v3", "error_type": type(exc).__name__, "error": str(exc), "training_allowed": False}, ensure_ascii=False, sort_keys=True))
+        print(json.dumps({"schema": "nexus.training-isolation.qwen3-4b.failure.v4", "error_type": type(exc).__name__, "error": str(exc), "training_allowed": False}, ensure_ascii=False, sort_keys=True))
         raise
