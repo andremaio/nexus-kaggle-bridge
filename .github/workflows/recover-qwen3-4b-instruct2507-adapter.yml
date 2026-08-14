@@ -1,0 +1,70 @@
+name: Recover Qwen3 4B Instruct Adapter
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/recover-qwen3-4b-instruct2507-adapter.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-instruct-2507-lora-v1
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover kernel outputs without relaunching GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle kernels status "${KERNEL_REF}" | tee kernel-status.txt || true
+          rm -rf recovered && mkdir recovered
+          kaggle kernels output "${KERNEL_REF}" -p recovered -o | tee recovery.txt
+          find recovered -maxdepth 5 -type f -printf '%p %s bytes\n' | sort | tee recovered-files.txt
+          test -f recovered/nexus-qwen3-4b-instruct2507-adapter-v1/adapter_config.json
+          test -f recovered/nexus-qwen3-4b-instruct2507-adapter-v1/adapter_model.safetensors
+          test -f recovered/qwen3-4b-instruct2507-dataset-manifest-v1.json
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path('recovered/nexus-qwen3-4b-instruct2507-adapter-v1')
+          manifest={
+              'schema':'nexus.recovery.qwen3-4b-instruct2507-adapter.v1',
+              'source_kernel':'andrmaio/nexus-qwen3-4b-instruct-2507-lora-v1',
+              'source_kernel_failed_after_training':True,
+              'adapter_files':{},
+              'automatic_promotion_authorized':False,
+              'automatic_activation_authorized':False,
+              'gpu_relaunched':False,
+          }
+          for path in sorted(root.iterdir()):
+              if path.is_file():
+                  h=hashlib.sha256(path.read_bytes()).hexdigest()
+                  manifest['adapter_files'][path.name]={'sha256':h,'bytes':path.stat().st_size}
+          Path('adapter-recovery-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,sort_keys=True,indent=2)+'\n')
+          print(json.dumps(manifest,sort_keys=True))
+          PY
+          tar -czf qwen3-4b-instruct2507-adapter-v1-recovered.tgz -C recovered nexus-qwen3-4b-instruct2507-adapter-v1
+      - name: Upload recovered adapter
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwen3-4b-instruct2507-adapter-v1-recovered
+          path: |
+            kernel-status.txt
+            recovery.txt
+            recovered-files.txt
+            adapter-recovery-manifest.json
+            recovered/qwen3-4b-instruct2507-dataset-manifest-v1.json
+            recovered/qwen3-4b-instruct2507-lora-failure-v1.json
+            qwen3-4b-instruct2507-adapter-v1-recovered.tgz
+          if-no-files-found: error
+          retention-days: 14
