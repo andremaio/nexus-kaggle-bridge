@@ -1,0 +1,51 @@
+name: Qwen3 1.7B Training Contracts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - kaggle/train_qwen3_1_7b_lora.py
+      - kaggle/train_qwen3_1_7b_bootstrap.py
+      - .github/workflows/kaggle-train-qwen3-1-7b.yml
+      - .github/workflows/qwen17-training-contracts.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Python contracts
+        run: |
+          python -m py_compile kaggle/train_qwen3_1_7b_lora.py kaggle/train_qwen3_1_7b_bootstrap.py
+      - name: Verify fail-closed training invariants
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          trainer=Path('kaggle/train_qwen3_1_7b_lora.py').read_text()
+          bootstrap=Path('kaggle/train_qwen3_1_7b_bootstrap.py').read_text()
+          workflow=Path('.github/workflows/kaggle-train-qwen3-1-7b.yml').read_text()
+          checks={
+            'pinned_model_revision': "MODEL_REV = '70d244cc86ccca08cf5af4e1e306ecf908b1ad5e'" in trainer,
+            'exact_528_examples': "len(train_rows) != 528" in trainer,
+            'holdout_in_contamination_gate': "fixed + adversarial + holdout" in trainer,
+            'semantic_safety_gate': 'candidate_semantic_safety' in trainer,
+            'critical_regression_gate': 'critical_regressions_vs_v4' in trainer,
+            'human_review_only': "'eligible_for_human_review': qualified" in trainer and "'human_review_required': True" in trainer,
+            'no_auto_promotion': "'automatic_promotion_authorized': False" in trainer,
+            'no_auto_activation': "'automatic_activation_authorized': False" in trainer,
+            'one_gpu_before_torch': "os.environ['CUDA_VISIBLE_DEVICES'] = '0'" in bootstrap,
+            'torchao_removed': "pip', 'uninstall', '-y', 'torchao'" in bootstrap,
+            'private_kaggle_kernel': '"is_private": true' in workflow,
+            'gpu_kernel': '"enable_gpu": true' in workflow,
+            'v4_comparison_source': 'andrmaio/nexus-qwen3-0-6b-lora-v4' in workflow,
+          }
+          failed=[name for name, ok in checks.items() if not ok]
+          print({'checks':len(checks),'passed':len(checks)-len(failed),'failed':failed})
+          if failed:
+              raise SystemExit(1)
+          PY
