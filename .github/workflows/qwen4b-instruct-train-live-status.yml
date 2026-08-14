@@ -1,0 +1,43 @@
+name: Qwen3 4B Instruct Train Live Status
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/qwen4b-instruct-train-live-status.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-instruct-2507-lora-v1
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read current training state and logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle kernels status "${KERNEL_REF}" | tee qwen4b-train-status.txt
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > qwen4b-train-live.log 2>&1
+          tail -n 1000 qwen4b-train-live.log
+          kaggle quota --format json | tee qwen4b-train-quota.json
+          exit 0
+      - name: Upload training diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwen4b-instruct-train-live-status
+          path: |
+            qwen4b-train-status.txt
+            qwen4b-train-live.log
+            qwen4b-train-quota.json
+          retention-days: 1
