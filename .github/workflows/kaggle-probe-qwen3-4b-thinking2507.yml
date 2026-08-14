@@ -1,0 +1,133 @@
+name: NEXUS Qwen3 4B Thinking 2507 Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/probe-qwen3-4b-thinking2507.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-thinking2507-probe-v1
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preflight without GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          python -m pip install --dry-run --quiet "transformers==5.14.1" "peft==0.19.1" "accelerate==1.14.0"
+          python -m py_compile kaggle/probe_qwen3_4b_thinking2507.py kaggle/probe_qwen3_4b_thinking2507_bootstrap.py
+          kaggle quota --format json > quota-before.json
+          cat quota-before.json
+
+      - name: Prepare private T4 kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel && mkdir kernel
+          cp kaggle/probe_qwen3_4b_thinking2507_bootstrap.py kernel/probe_qwen3_4b_thinking2507_bootstrap.py
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id": "andrmaio/nexus-qwen3-4b-thinking2507-probe-v1",
+            "title": "NEXUS Qwen3 4B Thinking 2507 Probe v1",
+            "code_file": "probe_qwen3_4b_thinking2507_bootstrap.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": true,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "machine_shape": "NvidiaTeslaT4",
+            "keywords": [],
+            "dataset_sources": [],
+            "kernel_sources": ["andrmaio/nexus-qwen3-0-6b-lora-v4"],
+            "competition_sources": [],
+            "model_sources": []
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+
+      - name: Launch private T4 probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --accelerator NvidiaTeslaT4 --timeout 10800 | tee kaggle-launch.txt
+
+      - name: Wait for result
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 480); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            printf '%s\n' "$status" | tee kaggle-status.txt
+            low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$low" | grep -Eq 'complete|completed'; then final="complete"; break; fi
+            if printf '%s' "$low" | grep -Eq 'kernelworkerstatus\.error|error|failed|failure|cancel|404|not found'; then final="failed"; break; fi
+            sleep 20
+          done
+          if [[ -z "$final" ]]; then final="timeout"; fi
+          echo "KAGGLE_FINAL_STATE=$final" | tee -a "$GITHUB_ENV"
+
+      - name: Collect logs and quota
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kaggle-kernel.log 2>&1
+          tail -n 1200 kaggle-kernel.log || true
+          kaggle quota --format json > quota-after.json
+          cat quota-after.json
+
+      - name: Download verified aggregate evidence
+        if: env.KAGGLE_FINAL_STATE == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p kaggle-output
+          kaggle kernels output "${KERNEL_REF}" -p kaggle-output -o
+          test -f kaggle-output/qwen3-4b-thinking2507-probe-v1.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('kaggle-output/qwen3-4b-thinking2507-probe-v1.json').read_text())
+          if report.get('schema') != 'nexus.training.qwen3-4b-thinking2507-probe.v1':
+              raise SystemExit('unexpected schema')
+          if report.get('thinking_content_decoded') is not False or report.get('thinking_content_persisted') is not False:
+              raise SystemExit('thinking privacy invariant violated')
+          if report.get('automatic_promotion_authorized') is not False or report.get('automatic_activation_authorized') is not False:
+              raise SystemExit('authority invariant violated')
+          print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-qwen3-4b-thinking2507-evidence
+          path: |
+            quota-before.json
+            quota-after.json
+            kaggle-launch.txt
+            kaggle-status.txt
+            kaggle-kernel.log
+            kaggle-output/qwen3-4b-thinking2507-probe-v1.json
+            kaggle-output/qwen3-4b-thinking2507-probe-failure-v1.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Fail closed unless complete
+        if: always()
+        shell: bash
+        run: test "${KAGGLE_FINAL_STATE:-}" = "complete"
