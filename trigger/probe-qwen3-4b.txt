@@ -1,5 +1,5 @@
-Launch repaired Qwen3-4B fresh-holdout capacity probe.
-Inputs preflighted and pinned to immutable commit a10104c50eb4320acda30592c424e75848698df1.
-Evaluate legacy + v2 dev + frozen v3 fresh holdout and compare against Qwen3-0.6B v4.
+Launch suite-validated Qwen3-4B fresh-holdout capacity probe.
+Inputs pinned to immutable commit a10104c50eb4320acda30592c424e75848698df1 and exact case IDs.
+Evaluate fixed/adversarial + 48-case v2 dev + 48-case frozen v3 fresh holdout against Qwen3-0.6B v4.
 No automatic training, promotion or runtime activation.
-Triggered 2026-08-14T21:08+01:00.
+Triggered after green probe contracts on 2026-08-14.
