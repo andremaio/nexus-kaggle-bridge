@@ -1,0 +1,31 @@
+name: Qwen3 4B Training Isolation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/check_qwen4b_training_isolation.py
+      - .github/workflows/qwen4b-training-isolation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile isolation gate
+        run: python -m py_compile scripts/check_qwen4b_training_isolation.py
+      - name: Verify curriculum is isolated from every evaluation set
+        run: python scripts/check_qwen4b_training_isolation.py | tee qwen4b-training-isolation.jsonl
+      - name: Upload isolation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwen4b-training-isolation
+          path: qwen4b-training-isolation.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
