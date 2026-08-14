@@ -1,0 +1,35 @@
+name: Qwen3 4B v2 Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/qwen4b-v2-diagnostic.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-instruct-2507-lora-v2
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read existing kernel only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle kernels status "${KERNEL_REF}" | tee kernel-status.txt || true
+          kaggle kernels logs "${KERNEL_REF}" > full.log 2>&1 || true
+          echo '=== NEXUS / CUDA / TRAIN / ERROR ==='
+          grep -Ei 'NEXUS_|CUDA|TRAIN_COMPLETE|training_loss|train_runtime|adapter|Traceback|RuntimeError|ValueError|Error|Exception|OOM|out of memory' full.log | tail -n 500 || true
+          echo '=== LAST 120 ==='
+          tail -n 120 full.log || true
+          kaggle quota --format json | tee quota.json || true
