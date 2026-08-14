@@ -1,0 +1,147 @@
+name: NEXUS Qwen3 1.7B Challenger Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/probe-qwen3-1-7b.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-1-7b-probe
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Kaggle access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          kaggle quota --format json > quota-before.json
+          cat quota-before.json
+
+      - name: Prepare private T4 probe kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel
+          mkdir kernel
+          cp kaggle/probe_qwen3_1_7b.py kernel/probe_qwen3_1_7b.py
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id": "andrmaio/nexus-qwen3-1-7b-probe",
+            "title": "NEXUS Qwen3 1.7B Challenger Probe",
+            "code_file": "probe_qwen3_1_7b.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": true,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "machine_shape": "NvidiaTeslaT4",
+            "keywords": [],
+            "dataset_sources": [],
+            "kernel_sources": ["andrmaio/nexus-qwen3-0-6b-lora-v4"],
+            "competition_sources": [],
+            "model_sources": []
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+
+      - name: Launch Qwen3 1.7B probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --accelerator NvidiaTeslaT4 --timeout 5400 | tee kaggle-launch.txt
+
+      - name: Wait for probe result
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 240); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            printf '%s\n' "$status" | tee kaggle-status.txt
+            low="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$low" | grep -Eq 'complete|completed'; then final="complete"; break; fi
+            if printf '%s' "$low" | grep -Eq 'error|failed|failure|cancel|404|not found'; then final="failed"; break; fi
+            sleep 20
+          done
+          if [[ -z "$final" ]]; then final="timeout"; fi
+          echo "KAGGLE_FINAL_STATE=$final" | tee -a "$GITHUB_ENV"
+
+      - name: Collect probe logs
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kaggle-kernel.log 2>&1
+          tail -n 550 kaggle-kernel.log || true
+          kaggle quota --format json > quota-after.json
+          cat quota-after.json
+
+      - name: Download probe evidence
+        if: env.KAGGLE_FINAL_STATE == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p kaggle-output
+          kaggle kernels output "${KERNEL_REF}" -p kaggle-output -o
+          find kaggle-output -maxdepth 2 -type f -printf '%p %s bytes\n' | sort | tee kaggle-output-files.txt
+          test -f kaggle-output/qwen3-1.7b-probe.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('kaggle-output/qwen3-1.7b-probe.json').read_text())
+          print('MODEL=' + str(report.get('model_id')))
+          print('REVISION=' + str(report.get('resolved_revision')))
+          print('LEGACY=' + json.dumps(report.get('legacy'), sort_keys=True))
+          print('SEMANTIC=' + json.dumps(report.get('semantic_safety_gate'), sort_keys=True))
+          print('HOLDOUT_V4=' + json.dumps(report.get('holdout_v4'), sort_keys=True))
+          print('HOLDOUT_CHALLENGER=' + json.dumps(report.get('holdout_challenger'), sort_keys=True))
+          print('HOLDOUT_GAIN=' + str(report.get('holdout_score_gain_vs_v4')))
+          print('CRITICAL_REGRESSIONS=' + json.dumps(report.get('critical_regressions_vs_v4'), sort_keys=True))
+          print('QUALIFIED=' + str(report.get('qualified_as_deep_reasoning_challenger')))
+          if report.get('automatic_promotion_authorized') is not False:
+              raise SystemExit('automatic promotion invariant violated')
+          if report.get('paid_service_used') is not False:
+              raise SystemExit('zero-cost invariant violated')
+          PY
+
+      - name: Upload challenger evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-qwen3-1-7b-probe-evidence
+          path: |
+            quota-before.json
+            quota-after.json
+            kaggle-launch.txt
+            kaggle-status.txt
+            kaggle-kernel.log
+            kaggle-output-files.txt
+            kaggle-output/qwen3-1.7b-probe.json
+            kaggle-output/qwen3-1.7b-holdout-details.json
+            kaggle-output/v4-holdout-details-for-1.7b-probe.json
+            kaggle-output/qwen3-1.7b-legacy-predictions.jsonl
+            kaggle-output/qwen3-1.7b-holdout-predictions.jsonl
+            kaggle-output/v4-holdout-predictions-for-1.7b-probe.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Require completed probe
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${KAGGLE_FINAL_STATE:-}" = "complete"
