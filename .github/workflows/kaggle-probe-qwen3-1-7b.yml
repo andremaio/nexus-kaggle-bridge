@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 90
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KERNEL_REF: andrmaio/nexus-qwen3-1-7b-probe
+      KERNEL_REF: andrmaio/nexus-qwen3-1-7b-challenger-probe
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
     steps:
       - uses: actions/checkout@v4
@@ -39,7 +39,7 @@ jobs:
           cp kaggle/probe_qwen3_1_7b.py kernel/probe_qwen3_1_7b.py
           cat > kernel/kernel-metadata.json <<'JSON'
           {
-            "id": "andrmaio/nexus-qwen3-1-7b-probe",
+            "id": "andrmaio/nexus-qwen3-1-7b-challenger-probe",
             "title": "NEXUS Qwen3 1.7B Challenger Probe",
             "code_file": "probe_qwen3_1_7b.py",
             "language": "python",
