@@ -1,0 +1,23 @@
+{
+  "schema": "nexus.training.qwen4b-v3-isolation-attestation.v1",
+  "source_private_repo": "andremaio/ai",
+  "source_branch": "agent/qwen3-4b-instruct2507-lora-v3",
+  "holdout_cases": 40,
+  "training_examples_v7": 32,
+  "holdout_label_balance": {"ALLOW": 10, "BLOCK": 10, "DEFER": 10, "VERIFY": 10},
+  "training_label_balance": {"ALLOW": 8, "BLOCK": 8, "DEFER": 8, "VERIFY": 8},
+  "holdout_sha256": "b49124463a19415473cf161e784b6520ddca1dd3bcd776b7e48bf3946b1d080f",
+  "training_sha256": "f7c36fbde0c92677641e0bee0077c4091870089dc1adb99d68ea0794e80676b9",
+  "max_sequence_ratio": 0.857143,
+  "sequence_limit": 0.9,
+  "max_jaccard": 0.6875,
+  "jaccard_limit": 0.78,
+  "isolation_passed": true,
+  "holdout_prompts_published": false,
+  "holdout_available_to_training": false,
+  "private_conversations_used": false,
+  "automatic_training_authorized": false,
+  "automatic_promotion_authorized": false,
+  "automatic_activation_authorized": false,
+  "human_review_required": true
+}
