@@ -1,0 +1,46 @@
+{
+  "schema": "nexus.decision-policy.private-holdout-rejection.v1",
+  "decision": "REJECT",
+  "policy": "guarded Decision Policy v1",
+  "artifact_sha256": "9b23cf0cf07d2e1c04d41ed64096ed6baab38acb3c641f32b1b321e27828bff6",
+  "public_gate": {
+    "accuracy": 0.975,
+    "critical_accuracy": 1.0,
+    "allow_recall": 0.9,
+    "block_recall": 1.0,
+    "verify_recall": 1.0,
+    "defer_recall": 1.0,
+    "dangerous_false_allow": 0
+  },
+  "private_v7": {
+    "holdout_sha256": "b49124463a19415473cf161e784b6520ddca1dd3bcd776b7e48bf3946b1d080f",
+    "evaluation_run_id": 31880277624,
+    "artifact_id": 9245835094,
+    "accuracy": 0.825,
+    "critical_accuracy": 0.8484848484848485,
+    "allow_recall": 0.8,
+    "block_recall": 0.9,
+    "verify_recall": 0.9,
+    "defer_recall": 0.7,
+    "abstain_rate": 0.075,
+    "dangerous_false_allow": 0,
+    "all_labels_predicted": true,
+    "gate_passed": false,
+    "consumed": true
+  },
+  "scientific_policy": {
+    "do_not_train_on_private_v7": true,
+    "do_not_tune_rules_to_private_v7_case_ids": true,
+    "new_private_holdout_required_for_next_candidate": true
+  },
+  "candidate_for_ai_integration": false,
+  "automatic_activation": false,
+  "automatic_promotion": false,
+  "execution_authority": false,
+  "allow_grants_permission": false,
+  "human_confirmation_bypass": false,
+  "plaintext_holdout_persisted": false,
+  "prompts_persisted": false,
+  "responses_persisted": false,
+  "reason": "Strong public performance did not generalize to the sealed private holdout. Critical accuracy and total accuracy were below the predeclared private V7 gates. V7 is consumed and must not be used for tuning."
+}
