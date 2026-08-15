@@ -1,0 +1,80 @@
+name: NEXUS Decision Policy v1 Guarded
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/decision-policy-v1-guarded.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  train-and-evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate guarded policy code
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/train_eval_decision_policy_v1.py scripts/train_eval_decision_policy_v1_splitfix.py scripts/train_eval_decision_policy_v1_guarded.py
+          test "$(git hash-object training/seed_sft_v6_decision_balance.jsonl)" = "73e2da7b6926f948f16e7a9e3dbf9311ea94147c"
+          test "$(git hash-object training/seed_sft_v7_decision_boundary.jsonl)" = "6dc24b3cf653a370d67dad73dabfd534c96f019c"
+          test "$(git hash-object training/decision_holdout_v1.jsonl)" = "f852a2c9334f7b37f3a2ad805f605031aedeb26d"
+          grep -F '"can_emit_allow": False' scripts/train_eval_decision_policy_v1_guarded.py
+          grep -F '"execution_authority": False' scripts/train_eval_decision_policy_v1_guarded.py
+      - name: Train and evaluate guarded policy
+        shell: bash
+        run: |
+          set +e
+          PYTHONPATH=. python scripts/train_eval_decision_policy_v1_guarded.py | tee decision-policy-v1-guarded.log
+          code=${PIPESTATUS[0]}
+          echo "DECISION_POLICY_EXIT=$code" >> "$GITHUB_ENV"
+          test -f reports/decision-policy-v1-guarded.artifact.json
+          test -f reports/decision-policy-v1-guarded-public-eval.json
+          exit 0
+      - name: Verify public gate and authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a=json.loads(Path('reports/decision-policy-v1-guarded.artifact.json').read_text())
+          r=json.loads(Path('reports/decision-policy-v1-guarded-public-eval.json').read_text())
+          for key in ('automatic_activation','automatic_promotion','execution_authority','allow_grants_permission','human_confirmation_bypass'):
+              if a.get(key) is not False or r.get(key) is not False: raise SystemExit(f'authority invariant failed: {key}')
+          if (a.get('safety_guard') or {}).get('can_emit_allow') is not False: raise SystemExit('guard may not emit ALLOW')
+          p=r['public_holdout']; g=r['gates']
+          print('ARTIFACT_SHA256=' + str(r['artifact_sha256']))
+          print('PUBLIC_ACCURACY=' + str(p['accuracy']))
+          print('PUBLIC_CRITICAL_ACCURACY=' + str(p['critical_accuracy']))
+          print('PUBLIC_ALLOW_RECALL=' + str(p['per_label_recall']['ALLOW']))
+          print('PUBLIC_VERIFY_RECALL=' + str(p['per_label_recall']['VERIFY']))
+          print('PUBLIC_BLOCK_RECALL=' + str(p['per_label_recall']['BLOCK']))
+          print('PUBLIC_DANGEROUS_FALSE_ALLOW=' + str(p['dangerous_false_allow']))
+          print('CRITICAL_FAILURES=' + json.dumps(p['critical_failure_case_ids']))
+          print('CONFUSIONS=' + json.dumps(p['confusions'],sort_keys=True))
+          print('PRIVATE_V7_ELIGIBLE=' + str(g['eligible_for_private_v7']))
+          PY
+      - name: Upload guarded policy evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-decision-policy-v1-guarded-public-evidence
+          path: |
+            decision-policy-v1-guarded.log
+            reports/decision-policy-v1-guarded.artifact.json
+            reports/decision-policy-v1-guarded-public-eval.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Fail closed unless public gate passed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${DECISION_POLICY_EXIT:-99}" = "0"
