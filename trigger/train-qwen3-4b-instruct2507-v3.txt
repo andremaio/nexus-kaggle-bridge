@@ -1,0 +1,5 @@
+Qwen3-4B-Instruct-2507 LoRA v3 training trigger
+source_merge=697c344236f1b5d5abccd929a32bbabf3ffa40a4
+holdout_sha256=b49124463a19415473cf161e784b6520ddca1dd3bcd776b7e48bf3946b1d080f
+automatic_promotion=false
+automatic_activation=false
