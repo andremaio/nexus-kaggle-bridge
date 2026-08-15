@@ -1,0 +1,8 @@
+Run Decision Policy v3b public multi-suite gates.
+private_v7_training_use=false
+private_v8_training_use=false
+private_v9_training_use=false
+private_v9_evaluated=false
+shadow_only=true
+automatic_activation=false
+automatic_promotion=false
