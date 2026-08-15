@@ -1,0 +1,128 @@
+name: NEXUS Generate Private V9 Holdout
+
+on:
+  push:
+    branches: [decision-policy-v3]
+    paths:
+      - trigger/generate-private-v9.txt
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-private-holdout-v9-generator
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Validate generator
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          python -m py_compile kaggle/generate_private_holdout_v9.py
+          ! grep -R -E 'h7-[avbd][0-9]+|h8-[avbd][0-9]+' kaggle/generate_private_holdout_v9.py
+      - name: Prepare private CPU generator
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel && mkdir kernel
+          cp kaggle/generate_private_holdout_v9.py kernel/
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id":"andrmaio/nexus-private-holdout-v9-generator",
+            "title":"NEXUS Private V9 Holdout Generator",
+            "code_file":"generate_private_holdout_v9.py",
+            "language":"python",
+            "kernel_type":"script",
+            "is_private":true,
+            "enable_gpu":false,
+            "enable_tpu":false,
+            "enable_internet":false,
+            "keywords":[],
+            "dataset_sources":[],
+            "kernel_sources":["andrmaio/nexus-v7-private-holdout-keyvault"],
+            "competition_sources":[],
+            "model_sources":[]
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+      - name: Launch private generator
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --timeout 1800 | tee launch.txt
+      - name: Wait for generator
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 120); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            echo "$status" | tee status.txt
+            low="$(echo "$status" | tr '[:upper:]' '[:lower:]')"
+            if echo "$low" | grep -Eq 'complete|completed'; then final=complete; break; fi
+            if echo "$low" | grep -Eq 'kernelworkerstatus\.error|error|failed|failure|cancel|404|not found|permission.*denied'; then final=failed; break; fi
+            sleep 10
+          done
+          [[ "$final" = complete ]]
+      - name: Collect sealed outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels logs "${KERNEL_REF}" > kernel.log 2>&1
+          if grep -F "BEGIN PRIVATE KEY" kernel.log; then echo "private key leaked" >&2; exit 1; fi
+          if grep -E '"prompt"[[:space:]]*:' kernel.log; then echo "private prompt leaked" >&2; exit 1; fi
+          rm -rf output && mkdir output
+          kaggle kernels output "${KERNEL_REF}" -p output -o
+          test -f output/holdout_v9.enc.json
+          test -f output/holdout_v9_manifest.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          b=json.loads(Path('output/holdout_v9.enc.json').read_text())
+          m=json.loads(Path('output/holdout_v9_manifest.json').read_text())
+          assert b['schema']=='nexus.encrypted-holdout.v1' and b['holdout']=='v9'
+          assert b['plaintext_prompts_in_document'] is False
+          assert b['automatic_activation_authorized'] is False and b['automatic_promotion_authorized'] is False
+          assert m['schema']=='nexus.private-holdout.manifest.v9' and m['cases']==64
+          assert m['labels']=={'ALLOW':16,'VERIFY':16,'BLOCK':16,'DEFER':16}
+          assert m['plaintext_persisted'] is False and m['prompts_in_manifest'] is False
+          assert m['created_before_policy_v3'] is True and m['training_access_allowed'] is False
+          assert b['holdout_sha256']==m['holdout_sha256']
+          print('V9_HOLDOUT_SHA256='+m['holdout_sha256'])
+          print('V9_CRITICAL_CASES='+str(m['critical_cases']))
+          PY
+      - name: Commit ciphertext and manifest only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p encrypted reports
+          cp output/holdout_v9.enc.json encrypted/holdout_v9.enc.json
+          cp output/holdout_v9_manifest.json reports/holdout_v9_manifest.json
+          git config user.name "nexus-evidence-bot"
+          git config user.email "nexus-evidence-bot@users.noreply.github.com"
+          git add encrypted/holdout_v9.enc.json reports/holdout_v9_manifest.json
+          git diff --cached --quiet && exit 0
+          git commit -m "evidence: freeze encrypted private V9 holdout"
+          git push origin HEAD:decision-policy-v3
+      - name: Upload sealed evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-private-v9-sealed-evidence
+          path: |
+            launch.txt
+            status.txt
+            kernel.log
+            output/holdout_v9.enc.json
+            output/holdout_v9_manifest.json
+          if-no-files-found: ignore
+          retention-days: 14
