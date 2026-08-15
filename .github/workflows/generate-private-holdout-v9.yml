@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 30
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KERNEL_REF: andrmaio/nexus-private-holdout-v9-generator
+      KERNEL_REF: andrmaio/nexus-private-v9-holdout-generator
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,7 +37,7 @@ jobs:
           cp kaggle/generate_private_holdout_v9.py kernel/
           cat > kernel/kernel-metadata.json <<'JSON'
           {
-            "id":"andrmaio/nexus-private-holdout-v9-generator",
+            "id":"andrmaio/nexus-private-v9-holdout-generator",
             "title":"NEXUS Private V9 Holdout Generator",
             "code_file":"generate_private_holdout_v9.py",
             "language":"python",
