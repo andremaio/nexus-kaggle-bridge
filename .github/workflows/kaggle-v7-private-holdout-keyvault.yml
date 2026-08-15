@@ -1,0 +1,108 @@
+name: NEXUS V7 Private Holdout Keyvault
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/create-v7-holdout-keyvault.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keyvault:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-v7-holdout-keyvault
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate keyvault contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          python -m py_compile kaggle/create_v7_holdout_keyvault.py
+          grep -F "private_key_printed': False" kaggle/create_v7_holdout_keyvault.py
+          grep -F "private_key_uploaded_to_github': False" kaggle/create_v7_holdout_keyvault.py
+      - name: Prepare private keyvault kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel && mkdir kernel
+          cp kaggle/create_v7_holdout_keyvault.py kernel/
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id":"andrmaio/nexus-v7-holdout-keyvault",
+            "title":"NEXUS V7 Private Holdout Keyvault",
+            "code_file":"create_v7_holdout_keyvault.py",
+            "language":"python",
+            "kernel_type":"script",
+            "is_private":true,
+            "enable_gpu":false,
+            "enable_tpu":false,
+            "enable_internet":true,
+            "keywords":[],
+            "dataset_sources":[],
+            "kernel_sources":[],
+            "competition_sources":[],
+            "model_sources":[]
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+      - name: Launch private keyvault
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --timeout 1200 | tee launch.txt
+      - name: Wait for keyvault
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 90); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            echo "$status" | tee status.txt
+            low="$(echo "$status" | tr '[:upper:]' '[:lower:]')"
+            if echo "$low" | grep -Eq 'complete|completed'; then final=complete; break; fi
+            if echo "$low" | grep -Eq 'error|failed|failure|cancel|404|not found|permission.*denied'; then final=failed; break; fi
+            sleep 10
+          done
+          [[ -n "$final" ]] || final=timeout
+          echo "KAGGLE_FINAL_STATE=$final" >> "$GITHUB_ENV"
+      - name: Verify logs expose public key only
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > keyvault.log 2>&1
+          cat keyvault.log
+          if [[ "${KAGGLE_FINAL_STATE:-}" = complete ]]; then
+            grep -F "NEXUS_V7_PUBLIC_KEY_BEGIN" keyvault.log
+            grep -F "NEXUS_V7_PUBLIC_KEY_END" keyvault.log
+            grep -F "NEXUS_V7_PRIVATE_KEY_PRINTED=false" keyvault.log
+            if grep -F "BEGIN PRIVATE KEY" keyvault.log; then
+              echo "private key leaked to logs" >&2
+              exit 1
+            fi
+          fi
+      - name: Upload public-only keyvault evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-v7-keyvault-public-evidence
+          path: |
+            launch.txt
+            status.txt
+            keyvault.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Fail closed unless complete
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${KAGGLE_FINAL_STATE:-}" = complete
