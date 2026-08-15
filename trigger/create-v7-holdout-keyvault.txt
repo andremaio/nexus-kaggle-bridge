@@ -1,0 +1,4 @@
+Create private V7 holdout keyvault.
+private_key_must_remain_in_kaggle=true
+public_key_only_to_logs=true
+automatic_promotion=false
