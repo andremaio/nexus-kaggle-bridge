@@ -1,0 +1,10 @@
+Run one-shot sealed private V7 evaluation.
+artifact_sha256=9b23cf0cf07d2e1c04d41ed64096ed6baab38acb3c641f32b1b321e27828bff6
+public_accuracy=0.975
+public_critical_accuracy=1.0
+public_dangerous_false_allow=0
+private_v7_sha256=b49124463a19415473cf161e784b6520ddca1dd3bcd776b7e48bf3946b1d080f
+shadow_only=true
+allow_grants_permission=false
+automatic_activation=false
+automatic_promotion=false
