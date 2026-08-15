@@ -1,0 +1,6 @@
+Publish exact guarded Decision Policy v1 artifact after public PASS.
+artifact_sha256=9b23cf0cf07d2e1c04d41ed64096ed6baab38acb3c641f32b1b321e27828bff6
+raw_artifact_sha256=0488114ec2cfde182ce7edaeefc34ba081d3f366b6e7d99354da4a681acada1f
+raw_report_sha256=df2837b1af50ff795502b0d72add697d233a92568a993e2bff980a438e64b2f9
+public_gate=passed
+private_v7_evaluated=false
