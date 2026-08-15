@@ -1,0 +1,5 @@
+Run Decision Policy v1 split-fix.
+train_all_v7_boundary_examples=true
+public_holdout_remains_external=true
+shadow_only=true
+allow_grants_permission=false
