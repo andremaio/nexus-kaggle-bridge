@@ -1,0 +1,131 @@
+name: NEXUS Decision Policy v5 Kaggle CPU
+
+on:
+  push:
+    branches: [decision-policy-v5]
+    paths:
+      - trigger/kaggle-decision-policy-v5.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-decision-policy-v5-semantic-public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate pinned bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          python -m py_compile kaggle/run_decision_policy_v5_public.py
+          grep -F 'SOURCE_COMMIT = "2e9bea96d47bc09f940ed679e97507ed23f5e42b"' kaggle/run_decision_policy_v5_public.py
+      - name: Prepare private CPU kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel && mkdir kernel
+          cp kaggle/run_decision_policy_v5_public.py kernel/
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id":"andrmaio/nexus-decision-policy-v5-semantic-public",
+            "title":"NEXUS Decision Policy v5 Semantic Public",
+            "code_file":"run_decision_policy_v5_public.py",
+            "language":"python",
+            "kernel_type":"script",
+            "is_private":true,
+            "enable_gpu":false,
+            "enable_tpu":false,
+            "enable_internet":true,
+            "keywords":[],
+            "dataset_sources":[],
+            "kernel_sources":[],
+            "competition_sources":[],
+            "model_sources":[]
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+      - name: Launch Kaggle CPU v5
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --timeout 2700 | tee launch.txt
+      - name: Wait for v5
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 240); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            echo "$status" | tee status.txt
+            low="$(echo "$status" | tr '[:upper:]' '[:lower:]')"
+            if echo "$low" | grep -Eq 'complete|completed'; then final=complete; break; fi
+            if echo "$low" | grep -Eq 'kernelworkerstatus\.error|error|failed|failure|cancel|404|not found|permission.*denied'; then final=failed; break; fi
+            sleep 10
+          done
+          [[ -n "$final" ]] || final=timeout
+          echo "KAGGLE_FINAL_STATE=$final" >> "$GITHUB_ENV"
+      - name: Collect v5 evidence
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kernel.log 2>&1
+          tail -n 1000 kernel.log || true
+          if [[ "${KAGGLE_FINAL_STATE:-}" = complete ]]; then
+            rm -rf output && mkdir output
+            kaggle kernels output "${KERNEL_REF}" -p output -o
+            test -f output/decision-policy-v5.artifact.json || exit 1
+            test -f output/decision-policy-v5-public-eval.json || exit 1
+            test -f output/v5-exit-code.txt || exit 1
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          a=json.loads(Path('output/decision-policy-v5.artifact.json').read_text())
+          r=json.loads(Path('output/decision-policy-v5-public-eval.json').read_text())
+          assert a['schema']=='nexus.decision-policy.artifact.v5'
+          assert a['encoder']['revision']=='fd1525a9fd15316a2d503bf26ab031a61d056e98'
+          for key in ('automatic_activation','automatic_promotion','execution_authority','allow_grants_permission','human_confirmation_bypass'):
+              assert a[key] is False and r[key] is False, key
+          print('ARTIFACT_SHA256='+r['artifact_sha256'])
+          for name,result in sorted(r['suites'].items()):
+              print('SUITE='+name+' ACC='+str(result['accuracy'])+' CRIT='+str(result['critical_accuracy'])+' LABELS='+json.dumps(result['per_label_recall'],sort_keys=True)+' FALSE_ALLOW='+str(result['dangerous_false_allow'])+' ABSTAIN='+str(result['abstain_rate']))
+          print('PRIVATE_V10_ELIGIBLE='+str(r['gates']['eligible_for_private_v10']))
+          PY
+          fi
+      - name: Upload v5 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-decision-policy-v5-kaggle-public-evidence
+          path: |
+            launch.txt
+            status.txt
+            kernel.log
+            output/decision-policy-v5.artifact.json
+            output/decision-policy-v5-public-eval.json
+            output/v5-exit-code.txt
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Fail closed unless v5 public gates passed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${KAGGLE_FINAL_STATE:-}" = complete
+          test "$(tr -d '\r\n' < output/v5-exit-code.txt)" = "0"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('output/decision-policy-v5-public-eval.json').read_text())
+          if (r.get('gates') or {}).get('eligible_for_private_v10') is not True:
+              raise SystemExit('semantic v5 public gate failed')
+          PY
