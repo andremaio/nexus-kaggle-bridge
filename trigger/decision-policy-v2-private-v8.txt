@@ -1,0 +1,8 @@
+Run sealed Decision Policy v2b private V8 gate.
+policy_commit=fd791f2dcc92f6227b00adfea86717def0da0b59
+artifact_sha256=24cffc56066d47f4b7a29bc866655a74996ebb3c6a61ce035fbb046071e20681
+encrypted_v8_commit=a3f4c67ff8fd574d46981d9d42246f9207bbed16
+encrypted_v8_blob=75fc3533be2ed66e5e24331538a9b4ccd2ae2cd1
+shadow_only=true
+automatic_activation=false
+automatic_promotion=false
