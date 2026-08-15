@@ -1,0 +1,84 @@
+name: NEXUS Decision Policy v4c Hybrid Gate
+
+on:
+  push:
+    branches: [decision-policy-v4]
+    paths:
+      - trigger/decision-policy-v4c.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  train-and-evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate v4c isolation and V10 ordering
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/train_eval_decision_policy_v4c.py
+          ! grep -F 'encrypted/holdout_v10' scripts/train_eval_decision_policy_v4c.py
+          ! grep -F 'generate_private_holdout_v10' scripts/train_eval_decision_policy_v4c.py
+          ! grep -R -E 'v10-(allow|verify|block|defer)-[0-9]+' scripts/train_eval_decision_policy_v4c.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('reports/holdout_v10_manifest.json').read_text())
+          assert m['created_before_policy_v4'] is True and m['training_access_allowed'] is False and m['prompts_in_manifest'] is False
+          assert m['cases']==80 and m['labels']=={'ALLOW':20,'VERIFY':20,'BLOCK':20,'DEFER':20}
+          print('V10_MANIFEST_ONLY_SHA='+m['holdout_sha256'])
+          PY
+      - name: Train and evaluate v4c
+        shell: bash
+        run: |
+          set +e
+          PYTHONPATH=. python scripts/train_eval_decision_policy_v4c.py | tee decision-policy-v4c.log
+          code=${PIPESTATUS[0]}
+          echo "DECISION_POLICY_V4C_EXIT=$code" >> "$GITHUB_ENV"
+          test -f reports/decision-policy-v4c.artifact.json
+          test -f reports/decision-policy-v4c-public-eval.json
+          exit 0
+      - name: Verify v4c metrics and authority invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a=json.loads(Path('reports/decision-policy-v4c.artifact.json').read_text())
+          r=json.loads(Path('reports/decision-policy-v4c-public-eval.json').read_text())
+          assert a['version']=='nexus.decision-policy.v4c'
+          assert a['mapping']['axis_models_can_change_final_label'] is False
+          assert a['safety_shell']['can_emit_allow'] is False
+          for key in ('automatic_activation','automatic_promotion','execution_authority','allow_grants_permission','human_confirmation_bypass'):
+              assert a[key] is False and r[key] is False, key
+          for key in ('private_v7_used_for_training_or_rules','private_v8_used_for_training_or_rules','private_v9_used_for_training_or_rules','private_v10_used_for_training_or_rules'):
+              assert a[key] is False, key
+          print('ARTIFACT_SHA256='+r['artifact_sha256'])
+          print('DIRECT_SHA256='+r['direct_artifact_sha256'])
+          for name,result in sorted(r['suites'].items()):
+              print('SUITE='+name+' ACC='+str(result['accuracy'])+' CRIT='+str(result['critical_accuracy'])+' LABELS='+json.dumps(result['per_label_recall'],sort_keys=True)+' FALSE_ALLOW='+str(result['dangerous_false_allow'])+' ABSTAIN='+str(result['abstain_rate']))
+          print('PRIVATE_V10_ELIGIBLE='+str(r['gates']['eligible_for_private_v10']))
+          PY
+      - name: Upload v4c public evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-decision-policy-v4c-public-evidence
+          path: |
+            decision-policy-v4c.log
+            reports/decision-policy-v4c.artifact.json
+            reports/decision-policy-v4c-public-eval.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Fail closed unless v4c passed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${DECISION_POLICY_V4C_EXIT:-99}" = "0"
