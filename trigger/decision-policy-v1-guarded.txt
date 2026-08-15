@@ -1,0 +1,7 @@
+Run guarded Decision Policy v1.
+public_holdout=decision_holdout_v1
+private_v7=false
+guard_can_emit_allow=false
+shadow_only=true
+execution_authority=false
+allow_grants_permission=false
