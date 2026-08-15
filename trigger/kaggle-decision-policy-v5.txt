@@ -1,0 +1,7 @@
+Run pinned semantic Decision Policy v5 on Kaggle CPU.
+source_commit=2e9bea96d47bc09f940ed679e97507ed23f5e42b
+encoder=intfloat/multilingual-e5-small
+encoder_revision=fd1525a9fd15316a2d503bf26ab031a61d056e98
+private_v10_training_use=false
+private_v10_evaluated=false
+shadow_only=true
