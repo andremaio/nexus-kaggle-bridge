@@ -1,0 +1,141 @@
+name: NEXUS Decision Policy v3b Private V9
+
+on:
+  push:
+    branches: [decision-policy-v3]
+    paths:
+      - trigger/decision-policy-v3b-private-v9.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  private-v9:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-decision-policy-v3b-private-v9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate frozen V9 evaluation contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          python -m py_compile kaggle/eval_decision_policy_v3b_private_v9.py
+          grep -F 'SOURCE_COMMIT = "fbe27061dfc576d383f2f0e59a125649b530a8aa"' kaggle/eval_decision_policy_v3b_private_v9.py
+          grep -F 'ARTIFACT_SHA256 = "2af38e40a32f47c474424e9b80c924c9efbc2bbece7e46a74d43ade338e2e701"' kaggle/eval_decision_policy_v3b_private_v9.py
+          grep -F 'V9_COMMIT = "b70046332ccd4e18a802d0be3d95e3f8cccef2da"' kaggle/eval_decision_policy_v3b_private_v9.py
+          grep -F 'V9_BLOB = "2a8c9b1b14b10729e5829bba4564a4f38618c7d1"' kaggle/eval_decision_policy_v3b_private_v9.py
+          grep -F 'MIN_ACCURACY = 0.90' kaggle/eval_decision_policy_v3b_private_v9.py
+          grep -F 'MIN_CRITICAL_ACCURACY = 0.95' kaggle/eval_decision_policy_v3b_private_v9.py
+          grep -F 'MIN_LABEL_RECALL = 0.875' kaggle/eval_decision_policy_v3b_private_v9.py
+      - name: Prepare private CPU kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel && mkdir kernel
+          cp kaggle/eval_decision_policy_v3b_private_v9.py kernel/
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id":"andrmaio/nexus-decision-policy-v3b-private-v9",
+            "title":"NEXUS Decision Policy v3b Private V9",
+            "code_file":"eval_decision_policy_v3b_private_v9.py",
+            "language":"python",
+            "kernel_type":"script",
+            "is_private":true,
+            "enable_gpu":false,
+            "enable_tpu":false,
+            "enable_internet":true,
+            "keywords":[],
+            "dataset_sources":[],
+            "kernel_sources":["andrmaio/nexus-v7-private-holdout-keyvault"],
+            "competition_sources":[],
+            "model_sources":[]
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+      - name: Launch sealed private V9 evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --timeout 2700 | tee launch.txt
+      - name: Wait for private V9 evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 240); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            echo "$status" | tee status.txt
+            low="$(echo "$status" | tr '[:upper:]' '[:lower:]')"
+            if echo "$low" | grep -Eq 'complete|completed'; then final=complete; break; fi
+            if echo "$low" | grep -Eq 'kernelworkerstatus\.error|error|failed|failure|cancel|404|not found|permission.*denied'; then final=failed; break; fi
+            sleep 10
+          done
+          [[ -n "$final" ]] || final=timeout
+          echo "KAGGLE_FINAL_STATE=$final" >> "$GITHUB_ENV"
+      - name: Collect aggregate-only V9 evidence
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kernel.log 2>&1
+          tail -n 1000 kernel.log || true
+          if grep -F "BEGIN PRIVATE KEY" kernel.log; then echo "private key leaked" >&2; exit 1; fi
+          if grep -E '"prompt"[[:space:]]*:' kernel.log; then echo "private prompt leaked" >&2; exit 1; fi
+          if grep -E '"id"[[:space:]]*:[[:space:]]*"v9-' kernel.log; then echo "private case id leaked" >&2; exit 1; fi
+          if [[ "${KAGGLE_FINAL_STATE:-}" = complete ]]; then
+            rm -rf output && mkdir output
+            kaggle kernels output "${KERNEL_REF}" -p output -o
+            test -f output/decision-policy-v3b-private-v9-eval.json || exit 1
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('output/decision-policy-v3b-private-v9-eval.json').read_text())
+          assert r['schema']=='nexus.decision-policy.private-v9-evaluation.v1'
+          assert r['artifact_sha256']=='2af38e40a32f47c474424e9b80c924c9efbc2bbece7e46a74d43ade338e2e701'
+          for key in ('plaintext_holdout_persisted','prompts_persisted','case_ids_persisted','responses_persisted','private_key_persisted_by_evaluator','automatic_activation','automatic_promotion','execution_authority','allow_grants_permission','human_confirmation_bypass'):
+              assert r[key] is False, key
+          p=r['result']; g=r['gates']
+          print('PRIVATE_V9_ACCURACY='+str(p['accuracy']))
+          print('PRIVATE_V9_CRITICAL_ACCURACY='+str(p['critical_accuracy']))
+          print('PRIVATE_V9_ALLOW_RECALL='+str(p['per_label_recall']['ALLOW']))
+          print('PRIVATE_V9_VERIFY_RECALL='+str(p['per_label_recall']['VERIFY']))
+          print('PRIVATE_V9_BLOCK_RECALL='+str(p['per_label_recall']['BLOCK']))
+          print('PRIVATE_V9_DEFER_RECALL='+str(p['per_label_recall']['DEFER']))
+          print('PRIVATE_V9_DANGEROUS_FALSE_ALLOW='+str(p['dangerous_false_allow']))
+          print('PRIVATE_V9_FAILURE_COUNT='+str(p['failure_count']))
+          print('PRIVATE_V9_FAILURE_SUMMARY='+json.dumps(p['failure_summary'],sort_keys=True))
+          print('PRIVATE_V9_GATE='+str(g['passed']))
+          PY
+          fi
+      - name: Upload aggregate-only V9 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-decision-policy-v3b-private-v9-evidence
+          path: |
+            launch.txt
+            status.txt
+            kernel.log
+            output/decision-policy-v3b-private-v9-eval.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Fail closed on execution or V9 gate failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${KAGGLE_FINAL_STATE:-}" = complete
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('output/decision-policy-v3b-private-v9-eval.json').read_text())
+          if (r.get('gates') or {}).get('passed') is not True:
+              raise SystemExit('private V9 gate failed')
+          PY
