@@ -1,0 +1,8 @@
+Run Decision Policy v4b natural-language public gates.
+private_v10_training_use=false
+private_v10_evaluated=false
+legacy_public_used_as_training_language_adapter=true
+fresh_natural_suite_required=true
+shadow_only=true
+automatic_activation=false
+automatic_promotion=false
