@@ -1,0 +1,6 @@
+Freeze encrypted private V10 before any Decision Policy v4 implementation.
+private_v9_training_use=false
+private_v10_training_use=false
+plaintext_export=false
+automatic_activation=false
+automatic_promotion=false
