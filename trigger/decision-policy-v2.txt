@@ -1,0 +1,6 @@
+Run Decision Policy v2 public gate.
+private_v7_used_for_training_or_rules=false
+private_v8_used_for_training_or_rules=false
+shadow_only=true
+automatic_activation=false
+automatic_promotion=false
