@@ -1,4 +1,5 @@
 Run Decision Policy v1 split-fix.
+retry=2
 train_all_v7_boundary_examples=true
 public_holdout_remains_external=true
 shadow_only=true
