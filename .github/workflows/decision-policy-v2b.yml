@@ -1,0 +1,73 @@
+name: NEXUS Decision Policy v2b Public Gate
+
+on:
+  push:
+    branches: [decision-policy-v2]
+    paths:
+      - trigger/decision-policy-v2b.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  train-and-evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate no-private-data contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/policy_v2_curriculum.py scripts/train_eval_decision_policy_v2.py scripts/train_eval_decision_policy_v2b.py
+          test ! -e training/lab/holdout_v8.jsonl
+          ! grep -R -E 'h7-[avbd][0-9]+|h8-[avbd][0-9]+' scripts/policy_v2_curriculum.py scripts/train_eval_decision_policy_v2.py scripts/train_eval_decision_policy_v2b.py
+      - name: Train and evaluate v2b
+        shell: bash
+        run: |
+          set +e
+          PYTHONPATH=. python scripts/train_eval_decision_policy_v2b.py | tee decision-policy-v2b.log
+          code=${PIPESTATUS[0]}
+          echo "DECISION_POLICY_V2B_EXIT=$code" >> "$GITHUB_ENV"
+          test -f reports/decision-policy-v2b.artifact.json
+          test -f reports/decision-policy-v2b-public-eval.json
+          exit 0
+      - name: Report metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('reports/decision-policy-v2b-public-eval.json').read_text())
+          p=r['public_holdout']; g=r['gates']
+          print('ARTIFACT_SHA256='+r['artifact_sha256'])
+          print('PUBLIC_ACCURACY='+str(p['accuracy']))
+          print('PUBLIC_CRITICAL_ACCURACY='+str(p['critical_accuracy']))
+          print('PUBLIC_ALLOW_RECALL='+str(p['per_label_recall']['ALLOW']))
+          print('PUBLIC_VERIFY_RECALL='+str(p['per_label_recall']['VERIFY']))
+          print('PUBLIC_BLOCK_RECALL='+str(p['per_label_recall']['BLOCK']))
+          print('PUBLIC_DEFER_RECALL='+str(p['per_label_recall']['DEFER']))
+          print('PUBLIC_DANGEROUS_FALSE_ALLOW='+str(p['dangerous_false_allow']))
+          print('PUBLIC_FAILURES='+json.dumps(p['confusions'],sort_keys=True))
+          print('PRIVATE_V8_ELIGIBLE='+str(g['eligible_for_private_v8']))
+          PY
+      - name: Upload v2b evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-decision-policy-v2b-public-evidence
+          path: |
+            decision-policy-v2b.log
+            reports/decision-policy-v2b.artifact.json
+            reports/decision-policy-v2b-public-eval.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Fail closed unless gate passed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${DECISION_POLICY_V2B_EXIT:-99}" = "0"
