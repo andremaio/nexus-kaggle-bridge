@@ -1,0 +1,8 @@
+Run Decision Policy v4c hybrid public gates.
+private_v10_training_use=false
+private_v10_evaluated=false
+fresh_natural_suites=3
+axis_models_diagnostic_only=true
+shadow_only=true
+automatic_activation=false
+automatic_promotion=false
