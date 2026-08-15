@@ -1,4 +1,6 @@
 Run one-shot sealed private V7 evaluation.
+retry=2
+bootstrap_commit=53ec87659282aa863940f33971369bc956a5f2ea
 artifact_sha256=9b23cf0cf07d2e1c04d41ed64096ed6baab38acb3c641f32b1b321e27828bff6
 public_accuracy=0.975
 public_critical_accuracy=1.0
