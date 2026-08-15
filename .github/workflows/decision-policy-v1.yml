@@ -1,0 +1,83 @@
+name: NEXUS Decision Policy v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/decision-policy-v1.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  train-and-evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate immutable inputs and policy code
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/train_eval_decision_policy_v1.py
+          test "$(git hash-object training/seed_sft_v6_decision_balance.jsonl)" = "73e2da7b6926f948f16e7a9e3dbf9311ea94147c"
+          test "$(git hash-object training/seed_sft_v7_decision_boundary.jsonl)" = "6dc24b3cf653a370d67dad73dabfd534c96f019c"
+          test "$(git hash-object training/decision_holdout_v1.jsonl)" = "f852a2c9334f7b37f3a2ad805f605031aedeb26d"
+          grep -F '"allow_grants_permission": False' scripts/train_eval_decision_policy_v1.py
+          grep -F '"human_confirmation_bypass": False' scripts/train_eval_decision_policy_v1.py
+          grep -F '"execution_authority": False' scripts/train_eval_decision_policy_v1.py
+      - name: Train and evaluate policy on CPU
+        shell: bash
+        run: |
+          set +e
+          python scripts/train_eval_decision_policy_v1.py | tee decision-policy-v1.log
+          code=${PIPESTATUS[0]}
+          echo "DECISION_POLICY_EXIT=$code" >> "$GITHUB_ENV"
+          test -f reports/decision-policy-v1.artifact.json
+          test -f reports/decision-policy-v1-public-eval.json
+          exit 0
+      - name: Verify report authority and public gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a=json.loads(Path('reports/decision-policy-v1.artifact.json').read_text())
+          r=json.loads(Path('reports/decision-policy-v1-public-eval.json').read_text())
+          if a.get('schema') != 'nexus.decision-policy.artifact.v1': raise SystemExit('artifact schema mismatch')
+          if r.get('schema') != 'nexus.decision-policy.public-evaluation.v1': raise SystemExit('report schema mismatch')
+          for key in ('automatic_activation','automatic_promotion','execution_authority','allow_grants_permission','human_confirmation_bypass'):
+              if a.get(key) is not False: raise SystemExit(f'artifact authority invariant failed: {key}')
+              if r.get(key) is not False: raise SystemExit(f'report authority invariant failed: {key}')
+          if a.get('shadow_only') is not True or r.get('shadow_only') is not True: raise SystemExit('shadow invariant failed')
+          p=r['public_holdout']; g=r['gates']
+          print('ARTIFACT_SHA256=' + str(r['artifact_sha256']))
+          print('PUBLIC_ACCURACY=' + str(p['accuracy']))
+          print('PUBLIC_CRITICAL_ACCURACY=' + str(p['critical_accuracy']))
+          print('PUBLIC_ALLOW_RECALL=' + str(p['per_label_recall']['ALLOW']))
+          print('PUBLIC_ABSTAIN_RATE=' + str(p['abstain_rate']))
+          print('PUBLIC_DANGEROUS_FALSE_ALLOW=' + str(p['dangerous_false_allow']))
+          print('PUBLIC_PREDICTED_COUNTS=' + json.dumps(p['predicted_counts'],sort_keys=True))
+          print('PRIVATE_V7_ELIGIBLE=' + str(g['eligible_for_private_v7']))
+          if g.get('deterministic_training') is not True: raise SystemExit('determinism gate failed')
+          PY
+      - name: Upload decision policy evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-decision-policy-v1-public-evidence
+          path: |
+            decision-policy-v1.log
+            reports/decision-policy-v1.artifact.json
+            reports/decision-policy-v1-public-eval.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Fail closed unless public gate passed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${DECISION_POLICY_EXIT:-99}" = "0"
