@@ -1,0 +1,6 @@
+Freeze encrypted private V9 before any Decision Policy v3 implementation.
+private_v7_training_use=false
+private_v8_training_use=false
+plaintext_export=false
+automatic_activation=false
+automatic_promotion=false
