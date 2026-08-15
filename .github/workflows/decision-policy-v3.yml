@@ -22,10 +22,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile scripts/decision_policy_v3_data.py scripts/train_eval_decision_policy_v3.py
-          ! grep -F 'encrypted/holdout_v9' scripts/decision_policy_v3_data.py scripts/train_eval_decision_policy_v3.py
-          ! grep -F 'generate_private_holdout_v9' scripts/decision_policy_v3_data.py scripts/train_eval_decision_policy_v3.py
-          ! grep -R -E 'v9-(allow|verify|block|defer)-[0-9]+' scripts/decision_policy_v3_data.py scripts/train_eval_decision_policy_v3.py
+          python -m py_compile scripts/decision_policy_v3_data.py scripts/train_eval_decision_policy_v3.py scripts/train_eval_decision_policy_v3_runner.py
+          ! grep -F 'encrypted/holdout_v9' scripts/decision_policy_v3_data.py scripts/train_eval_decision_policy_v3.py scripts/train_eval_decision_policy_v3_runner.py
+          ! grep -F 'generate_private_holdout_v9' scripts/decision_policy_v3_data.py scripts/train_eval_decision_policy_v3.py scripts/train_eval_decision_policy_v3_runner.py
+          ! grep -R -E 'v9-(allow|verify|block|defer)-[0-9]+' scripts/decision_policy_v3_data.py scripts/train_eval_decision_policy_v3.py scripts/train_eval_decision_policy_v3_runner.py
           python scripts/decision_policy_v3_data.py | tee v3-data-contract.json
           python - <<'PY'
           import json
@@ -41,7 +41,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          PYTHONPATH=. python scripts/train_eval_decision_policy_v3.py | tee decision-policy-v3.log
+          PYTHONPATH=. python scripts/train_eval_decision_policy_v3_runner.py | tee decision-policy-v3.log
           code=${PIPESTATUS[0]}
           echo "DECISION_POLICY_V3_EXIT=$code" >> "$GITHUB_ENV"
           test -f reports/decision-policy-v3.artifact.json
