@@ -30,7 +30,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          python scripts/train_eval_decision_policy_v1_splitfix.py | tee decision-policy-v1-splitfix.log
+          PYTHONPATH=. python scripts/train_eval_decision_policy_v1_splitfix.py | tee decision-policy-v1-splitfix.log
           code=${PIPESTATUS[0]}
           echo "DECISION_POLICY_EXIT=$code" >> "$GITHUB_ENV"
           test -f reports/decision-policy-v1-splitfix.artifact.json
