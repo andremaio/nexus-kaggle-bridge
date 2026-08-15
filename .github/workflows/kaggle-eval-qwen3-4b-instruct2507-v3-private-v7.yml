@@ -1,0 +1,155 @@
+name: NEXUS Qwen3 4B Instruct 2507 LoRA v3 Private V7 Eval
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/eval-qwen3-4b-instruct2507-v3-private-v7.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate-private-v7:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: andrmaio/nexus-qwen3-4b-instruct-2507-lora-v3-private-v7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify sealed private-eval contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}"
+          python -m pip install --quiet "kaggle==2.2.4"
+          python -m py_compile \
+            kaggle/eval_qwen3_4b_instruct2507_lora_v3_private_v7.py \
+            kaggle/eval_qwen3_4b_instruct2507_v3_private_v7_bootstrap.py
+          grep -F "HOLDOUT_SHA256 = 'b49124463a19415473cf161e784b6520ddca1dd3bcd776b7e48bf3946b1d080f'" kaggle/eval_qwen3_4b_instruct2507_lora_v3_private_v7.py
+          grep -F "PUBLIC_FINGERPRINT = 'd523e314cd24d6127abc83fa29ce7cd6f52fe8f72d67100f347ed4a94693aeab'" kaggle/eval_qwen3_4b_instruct2507_lora_v3_private_v7.py
+          grep -F "ENC_BLOB = 'f61a99e1d817b16aa2e66b7928da29517afecd4b'" kaggle/eval_qwen3_4b_instruct2507_lora_v3_private_v7.py
+          grep -F "SCRIPT_BLOB = '0a8ed965a9526597b1da23b614c5f2e007a79501'" kaggle/eval_qwen3_4b_instruct2507_v3_private_v7_bootstrap.py
+          grep -F "plaintext_holdout_persisted':False" kaggle/eval_qwen3_4b_instruct2507_lora_v3_private_v7.py
+          grep -F "automatic_promotion_authorized':False" kaggle/eval_qwen3_4b_instruct2507_lora_v3_private_v7.py
+          kaggle quota --format json | tee quota-before.json
+
+      - name: Prepare private T4 evaluation kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel && mkdir kernel
+          cp kaggle/eval_qwen3_4b_instruct2507_v3_private_v7_bootstrap.py kernel/
+          cat > kernel/kernel-metadata.json <<'JSON'
+          {
+            "id":"andrmaio/nexus-qwen3-4b-instruct-2507-lora-v3-private-v7",
+            "title":"NEXUS Qwen3 4B Instruct 2507 LoRA v3 Private V7",
+            "code_file":"eval_qwen3_4b_instruct2507_v3_private_v7_bootstrap.py",
+            "language":"python",
+            "kernel_type":"script",
+            "is_private":true,
+            "enable_gpu":true,
+            "enable_tpu":false,
+            "enable_internet":true,
+            "machine_shape":"NvidiaTeslaT4",
+            "keywords":[],
+            "dataset_sources":[],
+            "kernel_sources":[
+              "andrmaio/nexus-qwen3-4b-instruct-2507-lora-v3",
+              "andrmaio/nexus-v7-private-holdout-keyvault"
+            ],
+            "competition_sources":[],
+            "model_sources":[]
+          }
+          JSON
+          python -m json.tool kernel/kernel-metadata.json >/dev/null
+
+      - name: Launch sealed private V7 evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p kernel --accelerator NvidiaTeslaT4 --timeout 7200 | tee launch.txt
+
+      - name: Wait for private evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          final=""
+          for i in $(seq 1 300); do
+            status="$(kaggle kernels status "${KERNEL_REF}" 2>&1 || true)"
+            echo "$status" | tee status.txt
+            low="$(echo "$status" | tr '[:upper:]' '[:lower:]')"
+            if echo "$low" | grep -Eq 'complete|completed'; then final=complete; break; fi
+            if echo "$low" | grep -Eq 'kernelworkerstatus\.error|error|failed|failure|cancel|404|not found|permission.*denied'; then final=failed; break; fi
+            sleep 20
+          done
+          [[ -n "$final" ]] || final=timeout
+          echo "KAGGLE_FINAL_STATE=$final" >> "$GITHUB_ENV"
+
+      - name: Collect aggregate-only private evidence
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          kaggle kernels logs "${KERNEL_REF}" > kernel.log 2>&1
+          tail -n 1000 kernel.log || true
+          kaggle quota --format json | tee quota-after.json
+          if grep -F "BEGIN PRIVATE KEY" kernel.log; then
+            echo "private key material leaked to logs" >&2
+            exit 1
+          fi
+          if grep -F '"prompt"' kernel.log; then
+            echo "holdout prompt field leaked to logs" >&2
+            exit 1
+          fi
+          if [[ "${KAGGLE_FINAL_STATE:-}" = complete ]]; then
+            rm -rf output && mkdir output
+            kaggle kernels output "${KERNEL_REF}" -p output -o
+            test -f output/qwen3-4b-instruct2507-lora-v3-private-v7-eval.json || exit 1
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('output/qwen3-4b-instruct2507-lora-v3-private-v7-eval.json').read_text())
+          if r.get('schema') != 'nexus.eval.qwen3-4b-instruct2507-lora.v3.private-v7': raise SystemExit('schema mismatch')
+          required_false=(
+            'plaintext_holdout_persisted','prompts_persisted','responses_persisted',
+            'private_key_persisted_by_evaluator','external_actions_executed',
+            'automatic_promotion_authorized','automatic_activation_authorized','paid_service_used'
+          )
+          for key in required_false:
+              if r.get(key) is not False: raise SystemExit(f'invariant failed: {key}')
+          print('PRIVATE_V7_BASE=' + json.dumps(r.get('base'),sort_keys=True))
+          print('PRIVATE_V7_ADAPTED=' + json.dumps(r.get('adapted'),sort_keys=True))
+          print('PRIVATE_V7_GAIN=' + str(r.get('gain')))
+          print('PRIVATE_V7_SAFETY_GAIN=' + str(r.get('safety_gain')))
+          print('PRIVATE_V7_GATE=' + str(r.get('private_v7_gate_passed')))
+          print('PRIVATE_V7_REVIEW=' + str(r.get('candidate_for_human_review')))
+          PY
+          fi
+
+      - name: Upload aggregate-only V7 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-qwen3-4b-instruct2507-lora-v3-private-v7-eval
+          path: |
+            quota-before.json
+            quota-after.json
+            launch.txt
+            status.txt
+            kernel.log
+            output/qwen3-4b-instruct2507-lora-v3-private-v7-eval.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Fail closed unless complete
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${KAGGLE_FINAL_STATE:-}" = complete
