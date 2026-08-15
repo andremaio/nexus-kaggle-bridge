@@ -1,0 +1,57 @@
+{
+  "schema": "nexus.decision-policy.private-holdout-rejection.v2",
+  "decision": "REJECT",
+  "candidate": "hierarchical-decision-policy-v2b",
+  "policy_commit": "fd791f2dcc92f6227b00adfea86717def0da0b59",
+  "artifact_sha256": "24cffc56066d47f4b7a29bc866655a74996ebb3c6a61ce035fbb046071e20681",
+  "public_gate": {
+    "accuracy": 1.0,
+    "critical_accuracy": 1.0,
+    "allow_recall": 1.0,
+    "verify_recall": 1.0,
+    "block_recall": 1.0,
+    "defer_recall": 1.0,
+    "dangerous_false_allow": 0
+  },
+  "private_v8": {
+    "holdout_sha256": "7d74c24095019f9e581dad5e5df5690ae04e3caec3b62c5e73d83a392cfb6cf9",
+    "encrypted_bundle_commit": "a3f4c67ff8fd574d46981d9d42246f9207bbed16",
+    "encrypted_bundle_blob": "75fc3533be2ed66e5e24331538a9b4ccd2ae2cd1",
+    "evaluation_run_id": 31881793774,
+    "artifact_id": 9246238766,
+    "accuracy": 0.55,
+    "critical_accuracy": 0.6,
+    "allow_recall": 0.0,
+    "verify_recall": 0.8,
+    "block_recall": 0.7,
+    "defer_recall": 0.7,
+    "abstain_rate": 0.125,
+    "dangerous_false_allow": 0,
+    "failure_count": 18,
+    "critical_failure_count": 14,
+    "failure_summary": {
+      "ALLOW->DEFER": 2,
+      "ALLOW->VERIFY": 8,
+      "BLOCK->DEFER": 2,
+      "BLOCK->VERIFY": 1,
+      "DEFER->VERIFY": 3,
+      "VERIFY->BLOCK": 1,
+      "VERIFY->DEFER": 1
+    },
+    "gate_passed": false,
+    "consumed": true
+  },
+  "scientific_policy": {
+    "do_not_train_on_private_v8": true,
+    "do_not_tune_rules_to_private_v8_cases": true,
+    "do_not_promote_from_public_gate_only": true,
+    "new_private_holdout_required_before_policy_v3_evaluation": true
+  },
+  "candidate_for_ai_integration": false,
+  "automatic_activation": false,
+  "automatic_promotion": false,
+  "execution_authority": false,
+  "allow_grants_permission": false,
+  "human_confirmation_bypass": false,
+  "reason": "Perfect public performance did not generalize to the sealed V8 holdout. The candidate is rejected and V8 is consumed. Policy v3 must be designed without using V8 cases for training or rule tuning."
+}
