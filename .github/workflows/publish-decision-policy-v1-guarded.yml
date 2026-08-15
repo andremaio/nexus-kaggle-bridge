@@ -1,0 +1,53 @@
+name: Publish Guarded Decision Policy v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/publish-decision-policy-v1-guarded.txt
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Reproduce exact validated artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=. python scripts/train_eval_decision_policy_v1_guarded.py >/tmp/decision-policy.log
+          test "$(sha256sum reports/decision-policy-v1-guarded.artifact.json | awk '{print $1}')" = "0488114ec2cfde182ce7edaeefc34ba081d3f366b6e7d99354da4a681acada1f"
+          test "$(sha256sum reports/decision-policy-v1-guarded-public-eval.json | awk '{print $1}')" = "df2837b1af50ff795502b0d72add697d233a92568a993e2bff980a438e64b2f9"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a=json.loads(Path('reports/decision-policy-v1-guarded.artifact.json').read_text())
+          r=json.loads(Path('reports/decision-policy-v1-guarded-public-eval.json').read_text())
+          if a.get('artifact_sha256') != '9b23cf0cf07d2e1c04d41ed64096ed6baab38acb3c641f32b1b321e27828bff6': raise SystemExit('artifact identity changed')
+          if r.get('artifact_sha256') != a.get('artifact_sha256'): raise SystemExit('report/artifact mismatch')
+          if not r['gates']['eligible_for_private_v7']: raise SystemExit('public gate not eligible')
+          if r['public_holdout']['critical_accuracy'] != 1.0: raise SystemExit('critical accuracy changed')
+          if r['public_holdout']['dangerous_false_allow'] != 0: raise SystemExit('dangerous false ALLOW detected')
+          for key in ('automatic_activation','automatic_promotion','execution_authority','allow_grants_permission','human_confirmation_bypass'):
+              if a.get(key) is not False: raise SystemExit(f'authority invariant failed: {key}')
+          PY
+      - name: Commit exact evidence only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "NEXUS Evidence Bot"
+          git config user.email "noreply@github.com"
+          git add reports/decision-policy-v1-guarded.artifact.json reports/decision-policy-v1-guarded-public-eval.json
+          if git diff --cached --quiet; then
+            echo "Validated evidence already published."
+            exit 0
+          fi
+          git commit -m "evidence: publish validated guarded Decision Policy v1"
+          git push origin HEAD:main
