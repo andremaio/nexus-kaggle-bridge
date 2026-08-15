@@ -1,0 +1,52 @@
+{
+  "schema": "nexus.decision-policy.private-holdout-rejection.v3",
+  "decision": "REJECT",
+  "candidate": "nexus.decision-policy.v3b",
+  "source_commit": "fbe27061dfc576d383f2f0e59a125649b530a8aa",
+  "artifact_sha256": "2af38e40a32f47c474424e9b80c924c9efbc2bbece7e46a74d43ade338e2e701",
+  "public_gate": {
+    "all_public_suites_passed": true,
+    "dangerous_false_allow": 0,
+    "legacy_accuracy": 1.0,
+    "legacy_critical_accuracy": 1.0
+  },
+  "private_v9": {
+    "holdout_sha256": "b15d751f851bb8ce73ee66d31f52d92e826a8377f4e373a4e4531c60ed320910",
+    "encrypted_bundle_commit": "b70046332ccd4e18a802d0be3d95e3f8cccef2da",
+    "encrypted_bundle_blob": "2a8c9b1b14b10729e5829bba4564a4f38618c7d1",
+    "evaluation_run_id": 31882997740,
+    "artifact_id": 9246558776,
+    "accuracy": 0.90625,
+    "critical_accuracy": 0.9152542372881356,
+    "allow_recall": 0.8125,
+    "verify_recall": 0.9375,
+    "block_recall": 1.0,
+    "defer_recall": 0.875,
+    "abstain_rate": 0.03125,
+    "dangerous_false_allow": 0,
+    "failure_count": 6,
+    "critical_failure_count": 5,
+    "failure_summary": {
+      "ALLOW->BLOCK": 2,
+      "ALLOW->DEFER": 1,
+      "DEFER->VERIFY": 2,
+      "VERIFY->DEFER": 1
+    },
+    "gate_passed": false,
+    "consumed": true
+  },
+  "scientific_policy": {
+    "do_not_train_on_private_v9": true,
+    "do_not_tune_rules_to_private_v9_cases": true,
+    "do_not_use_private_v9_case_ids": true,
+    "aggregate_transition_counts_may_inform_architecture_only": true,
+    "new_private_holdout_required_before_policy_v4_evaluation": true
+  },
+  "candidate_for_ai_integration": false,
+  "automatic_activation": false,
+  "automatic_promotion": false,
+  "execution_authority": false,
+  "allow_grants_permission": false,
+  "human_confirmation_bypass": false,
+  "reason": "The candidate passed every public gate but failed the predeclared sealed V9 critical-accuracy and minimum-label-recall gates. V9 is consumed. Policy v4 must be designed without access to V9 cases or identifiers."
+}
