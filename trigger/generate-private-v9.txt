@@ -1,4 +1,6 @@
 Freeze encrypted private V9 before any Decision Policy v3 implementation.
+retry_reason=corrected_kaggle_slug
+kernel_ref=andrmaio/nexus-private-v9-holdout-generator
 private_v7_training_use=false
 private_v8_training_use=false
 plaintext_export=false
