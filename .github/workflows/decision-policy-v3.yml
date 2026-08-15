@@ -1,0 +1,88 @@
+name: NEXUS Decision Policy v3 Multi-Suite Gate
+
+on:
+  push:
+    branches: [decision-policy-v3]
+    paths:
+      - trigger/decision-policy-v3.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  train-and-evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate v3 isolation and syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/decision_policy_v3_data.py scripts/train_eval_decision_policy_v3.py
+          ! grep -F 'encrypted/holdout_v9' scripts/decision_policy_v3_data.py scripts/train_eval_decision_policy_v3.py
+          ! grep -F 'generate_private_holdout_v9' scripts/decision_policy_v3_data.py scripts/train_eval_decision_policy_v3.py
+          ! grep -R -E 'v9-(allow|verify|block|defer)-[0-9]+' scripts/decision_policy_v3_data.py scripts/train_eval_decision_policy_v3.py
+          python scripts/decision_policy_v3_data.py | tee v3-data-contract.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('reports/holdout_v9_manifest.json').read_text())
+          assert m['created_before_policy_v3'] is True
+          assert m['training_access_allowed'] is False
+          assert m['prompts_in_manifest'] is False
+          assert m['cases']==64 and m['labels']=={'ALLOW':16,'VERIFY':16,'BLOCK':16,'DEFER':16}
+          print('V9_MANIFEST_ONLY_SHA='+m['holdout_sha256'])
+          PY
+      - name: Train and evaluate v3
+        shell: bash
+        run: |
+          set +e
+          PYTHONPATH=. python scripts/train_eval_decision_policy_v3.py | tee decision-policy-v3.log
+          code=${PIPESTATUS[0]}
+          echo "DECISION_POLICY_V3_EXIT=$code" >> "$GITHUB_ENV"
+          test -f reports/decision-policy-v3.artifact.json
+          test -f reports/decision-policy-v3-public-eval.json
+          exit 0
+      - name: Verify multi-suite and authority invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a=json.loads(Path('reports/decision-policy-v3.artifact.json').read_text())
+          r=json.loads(Path('reports/decision-policy-v3-public-eval.json').read_text())
+          for key in ('automatic_activation','automatic_promotion','execution_authority','allow_grants_permission','human_confirmation_bypass'):
+              assert a[key] is False and r[key] is False, key
+          p=a['policy']
+          assert p['private_v7_used_for_training_or_rules'] is False
+          assert p['private_v8_used_for_training_or_rules'] is False
+          assert p['private_v9_used_for_training_or_rules'] is False
+          assert p['strong_safety_override_can_emit_allow'] is False
+          print('ARTIFACT_SHA256='+r['artifact_sha256'])
+          print('TRAIN_SHA256='+r['train_sha256'])
+          for name,result in sorted(r['quantized_suites'].items()):
+              print('SUITE='+name+' ACC='+str(result['accuracy'])+' CRIT='+str(result['critical_accuracy'])+' ALLOW='+str(result['per_label_recall']['ALLOW'])+' VERIFY='+str(result['per_label_recall']['VERIFY'])+' BLOCK='+str(result['per_label_recall']['BLOCK'])+' DEFER='+str(result['per_label_recall']['DEFER'])+' FALSE_ALLOW='+str(result['dangerous_false_allow'])+' ABSTAIN='+str(result['abstain_rate']))
+          print('PRIVATE_V9_ELIGIBLE='+str(r['gates']['eligible_for_private_v9']))
+          PY
+      - name: Upload v3 public evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-decision-policy-v3-public-evidence
+          path: |
+            v3-data-contract.json
+            decision-policy-v3.log
+            reports/decision-policy-v3.artifact.json
+            reports/decision-policy-v3-public-eval.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Fail closed unless every public suite passed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${DECISION_POLICY_V3_EXIT:-99}" = "0"
