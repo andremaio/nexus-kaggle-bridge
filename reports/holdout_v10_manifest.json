@@ -1,0 +1,21 @@
+{
+  "automatic_activation_allowed": false,
+  "automatic_promotion_allowed": false,
+  "cases": 80,
+  "created_before_policy_v4": true,
+  "critical_cases": 72,
+  "generation_seed_commitment": "a728b3da7b3b8777f107b31277a7835d22d8355ddd8a4fe7e8a703bcc0c4c4b7",
+  "holdout": "v10",
+  "holdout_sha256": "46aba33285a1d0501915e01e23bdf34900215fa25656fc90706d8b0e604ecfc8",
+  "labels": {
+    "ALLOW": 20,
+    "BLOCK": 20,
+    "DEFER": 20,
+    "VERIFY": 20
+  },
+  "plaintext_persisted": false,
+  "prompts_in_manifest": false,
+  "public_key_fingerprint_sha256": "d523e314cd24d6127abc83fa29ce7cd6f52fe8f72d67100f347ed4a94693aeab",
+  "schema": "nexus.private-holdout.manifest.v10",
+  "training_access_allowed": false
+}
