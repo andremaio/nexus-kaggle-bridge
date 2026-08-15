@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 30
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KERNEL_REF: andrmaio/nexus-v7-holdout-keyvault
+      KERNEL_REF: andrmaio/nexus-v7-private-holdout-keyvault
     steps:
       - uses: actions/checkout@v4
       - name: Validate keyvault contract
@@ -36,7 +36,7 @@ jobs:
           cp kaggle/create_v7_holdout_keyvault.py kernel/
           cat > kernel/kernel-metadata.json <<'JSON'
           {
-            "id":"andrmaio/nexus-v7-holdout-keyvault",
+            "id":"andrmaio/nexus-v7-private-holdout-keyvault",
             "title":"NEXUS V7 Private Holdout Keyvault",
             "code_file":"create_v7_holdout_keyvault.py",
             "language":"python",
@@ -68,7 +68,7 @@ jobs:
             echo "$status" | tee status.txt
             low="$(echo "$status" | tr '[:upper:]' '[:lower:]')"
             if echo "$low" | grep -Eq 'complete|completed'; then final=complete; break; fi
-            if echo "$low" | grep -Eq 'error|failed|failure|cancel|404|not found|permission.*denied'; then final=failed; break; fi
+            if echo "$low" | grep -Eq 'kernelworkerstatus\.error|error|failed|failure|cancel|404|not found|permission.*denied'; then final=failed; break; fi
             sleep 10
           done
           [[ -n "$final" ]] || final=timeout
