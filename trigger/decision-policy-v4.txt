@@ -1,0 +1,9 @@
+Run Decision Policy v4 latent-axis public gates.
+private_v7_training_use=false
+private_v8_training_use=false
+private_v9_training_use=false
+private_v10_training_use=false
+private_v10_evaluated=false
+shadow_only=true
+automatic_activation=false
+automatic_promotion=false
