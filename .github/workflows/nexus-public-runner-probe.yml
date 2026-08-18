@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - trigger/nexus-public-runner-probe.txt
+  pull_request:
+    branches: [main]
+    paths:
+      - trigger/nexus-public-runner-pr-probe.txt
 
 permissions:
   contents: write
@@ -15,7 +19,13 @@ jobs:
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v6
-      - name: Record runner proof
+      - name: Prove public runner execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "NEXUS_PUBLIC_RUNNER_OK commit=$GITHUB_SHA event=$GITHUB_EVENT_NAME"
+      - name: Record push runner proof
+        if: github.event_name == 'push'
         shell: bash
         run: |
           set -euo pipefail
