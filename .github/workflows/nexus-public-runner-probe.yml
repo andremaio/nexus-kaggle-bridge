@@ -1,0 +1,28 @@
+name: NEXUS Public Runner Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - trigger/nexus-public-runner-probe.txt
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+      - name: Record runner proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci
+          printf 'runner=github-hosted-public\ncommit=%s\nexecuted_at=%s\n' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > ci/nexus-public-runner-proof.txt
+          git config user.name 'nexus-ci'
+          git config user.email 'nexus-ci@users.noreply.github.com'
+          git add ci/nexus-public-runner-proof.txt
+          git commit -m 'ci: record public runner proof [skip ci]'
+          git push
